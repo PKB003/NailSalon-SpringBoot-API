@@ -13,10 +13,10 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.spec.SecretKeySpec;
-
 @Component
 @RequiredArgsConstructor
 public class CustomJwtDecoder implements JwtDecoder {
+
     private final InvalidTokenRepository invalidTokenRepository;
 
     @Value("${JWT_SECRET_KEY}")
@@ -42,6 +42,7 @@ public class CustomJwtDecoder implements JwtDecoder {
             if (invalidTokenRepository.existsById(jwtId)) {
                 throw new JwtException("Token has been invalidated (logout).");
             }
+
             return nimbusJwtDecoder.decode(token);
 
         } catch (Exception e) {

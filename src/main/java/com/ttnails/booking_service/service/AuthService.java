@@ -2,6 +2,7 @@ package com.ttnails.booking_service.service;
 
 
 import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jwt.SignedJWT;
 import com.ttnails.booking_service.dto.AuthRequest;
 import com.ttnails.booking_service.dto.IntrospectRequest;
 import com.ttnails.booking_service.dto.LogoutRequest;
@@ -35,9 +36,21 @@ public class AuthService {
     @Autowired
     private JwtUtil jwtUtil;
     public String authenticate(AuthRequest authRequest) {
-        User user = userRepository.findByPhoneOrEmail(authRequest.getPhone(),authRequest.getEmail()).orElseThrow(() -> new NotFoundException("Can't not find user"));
-        boolean auth = passwordEncoder.matches(authRequest.getPassword(),user.getPassword());
-        if(!auth) throw new AppException(ErrorCode.FAILED_AUTHENTICATED);
+        User user;
+        if (authRequest.getEmail() != null && !authRequest.getEmail().isEmpty()) {
+            user = userRepository.findByEmail(authRequest.getEmail())
+                    .orElseThrow(() -> new NotFoundException("User not found with email"));
+        } else if (authRequest.getPhone() != null && !authRequest.getPhone().isEmpty()) {
+            user = userRepository.findByPhone(authRequest.getPhone())
+                    .orElseThrow(() -> new NotFoundException("User not found with phone"));
+        } else {
+            throw new NotFoundException("You must provide email or phone");
+        }
+
+        boolean auth = passwordEncoder.matches(authRequest.getPassword(), user.getPassword());
+        if (!auth) {
+            throw new AppException(ErrorCode.FAILED_AUTHENTICATED);
+        }
         return jwtUtil.generateToken(user);
     }
     public boolean introspect(IntrospectRequest request) throws ParseException, JOSEException {
@@ -48,13 +61,20 @@ public class AuthService {
     }
 
     public String refreshToken(RefreshRequest request) throws JOSEException, ParseException {
-        var signedJwt = jwtUtil.verifyToken(request.getToken(),true);
-        var jwtId = signedJwt.getJWTClaimsSet().getJWTID();
+        SignedJWT signedJwt = jwtUtil.verifyToken(request.getToken(), true);
+        String jwtId = signedJwt.getJWTClaimsSet().getJWTID();
+        // Check if token logout
+        if (invalidTokenRepository.existsById(jwtId)) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        // Mark current token as invalid
         Date expiryTime = signedJwt.getJWTClaimsSet().getExpirationTime();
-        InvalidToken invalidToken = new InvalidToken(jwtId,expiryTime);
-        invalidTokenRepository.save(invalidToken);
-        var userName = signedJwt.getJWTClaimsSet().getSubject();
-        var user = userRepository.findByEmail(userName).orElseThrow(() -> new AppException(ErrorCode.FAILED_AUTHENTICATED));
+        invalidTokenRepository.save(new InvalidToken(jwtId, expiryTime));
+        // Generate new token
+        String userEmail = signedJwt.getJWTClaimsSet().getSubject();
+        User user = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new AppException(ErrorCode.FAILED_AUTHENTICATED));
+
         return jwtUtil.generateToken(user);
     }
     public void logout (LogoutRequest request) throws ParseException, JOSEException {

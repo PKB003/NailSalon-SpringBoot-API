@@ -32,7 +32,7 @@ public class UserService {
     public List<User> getAllUsers(){
         return userRepository.findAll();
     }
-    @PostAuthorize("hasRole('ADMIN') or returnObject.name == authentication.name")
+    @PostAuthorize("hasRole('ADMIN') or returnObject.email == authentication.name")
     public User getUserById(UUID uuid) {
         return userRepository.findById(uuid).orElse(null);
     }
@@ -61,10 +61,16 @@ public class UserService {
         return user;
     }
 
-    @PreAuthorize("hasRole('ADMIN') or uuid == authentication.principal.id")
+    @PreAuthorize("hasRole('ADMIN') or @userService.isCurrentUser(#uuid)")
     public User updateUser(UUID uuid, UserRequest userRequest) {
         User user = userRepository.findById(uuid).orElse(null);
         if(user != null) {
+            if(userRequest.getEmail() != null && userRepository.existsByEmailAndIdNot(userRequest.getEmail(), uuid)) {
+                throw new AppException(ErrorCode.EMAIL_IS_ALREADY_USED);
+            }
+            if(userRequest.getPhone() != null && userRepository.existsByPhoneAndIdNot(userRequest.getPhone(), uuid)) {
+                throw new AppException(ErrorCode.PHONE_IS_ALREADY_USED);
+            }
             updateUserFromGivenRequest(user, userRequest,isCurrentUserAdmin());
             return userRepository.save(user);
         } else {
@@ -91,7 +97,7 @@ public class UserService {
             user.setRoles(userRequest.getRoles());
         }
     }
-    @PreAuthorize("hasRole('ADMIN') or uuid == authentication.principal.id  ")
+    @PreAuthorize("hasRole('ADMIN') or @userService.isCurrentUser(#uuid)  ")
     public void deleteUser(UUID uuid) {
         userRepository.deleteById(uuid);
     }
@@ -103,6 +109,15 @@ public class UserService {
         return authentication != null && authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch(role -> role.equals("ROLE_ADMIN"));
+    }
+
+    public boolean isCurrentUser(UUID uuid) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) return false;
+
+        String currentEmail = authentication.getName(); // JWT subject
+        User currentUser = userRepository.findByEmail(currentEmail).orElse(null);
+        return currentUser != null && currentUser.getId().equals(uuid);
     }
 
 }

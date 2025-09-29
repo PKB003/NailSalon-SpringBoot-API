@@ -22,17 +22,16 @@ import java.util.StringJoiner;
 import java.util.UUID;
 
 @Component
-@AllArgsConstructor
 public class JwtUtil {
     @Value("${JWT_SECRET_KEY}")
     @NonFinal
-    protected static String secret;
+    protected String secret;
     @Value("${JWT_VALID_DURATION}")
     @NonFinal
-    protected static long valid_duration;
+    protected long valid_duration;
     @Value("${JWT_REFRESH_DURATION}")
     @NonFinal
-    protected static long refresh_duration;
+    protected long refresh_duration;
     public String generateToken(User user) {
         try {
             JWSSigner signer = new MACSigner(secret);
@@ -44,6 +43,7 @@ public class JwtUtil {
                     .expirationTime(new Date(Instant.now().plus(valid_duration, ChronoUnit.SECONDS).toEpochMilli()))
                     .jwtID(UUID.randomUUID().toString())
                     .claim("scope",buildScope(user))
+                    .claim("id", user.getId().toString())
                     .build();
             SignedJWT signedJWT = new SignedJWT(new JWSHeader(JWSAlgorithm.HS512), claimsSet);
             signedJWT.sign(signer);

@@ -1,5 +1,6 @@
 package com.ttnails.booking_service.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.ttnails.booking_service.enums.Gender;
 import jakarta.persistence.*;
 import lombok.*;
@@ -20,10 +21,13 @@ public class User {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
     private String name;
+    @Column(unique = true)
     private String phone;
     private boolean isVerifiedPhone;
+    @Column(unique = true)
     private String email;
     private boolean isVerifiedEmail;
+    @JsonIgnore
     private String password;
     @ElementCollection(fetch = FetchType.EAGER)
     private Set<String> roles = new HashSet<>();
@@ -31,7 +35,7 @@ public class User {
     private String address;
     @Enumerated(EnumType.STRING)
     private Gender gender;
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE}, orphanRemoval = true)
     private List<Booking> bookingList = new ArrayList<>();
 
 }

@@ -1,14 +1,11 @@
 package com.ttnails.booking_service.dto;
 
-import com.ttnails.booking_service.entity.Booking;
-import com.ttnails.booking_service.entity.User;
 import jakarta.validation.constraints.*;
-import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDateTime;
 @Data
-public class BookingRequest {
+public class GuestBookingRequest {
     @NotNull(message = "first name can't be empty")
     private String firstName;
     @NotNull(message = "last name can't be empty")

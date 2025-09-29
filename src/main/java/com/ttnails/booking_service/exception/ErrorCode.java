@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatusCode;
 
 public enum ErrorCode {
     NOT_FOUND(404,"Can't find", HttpStatus.NOT_FOUND),
+    SLOT_FULL(666,"This time slot is full. Please choose another time.", HttpStatus.NOT_ACCEPTABLE),
     USER_EXISTED(409, "User is already existed",HttpStatus.CONFLICT),
     EMAIL_IS_ALREADY_USED(409, "Email already exists", HttpStatus.CONFLICT),
     PHONE_IS_ALREADY_USED(409, "Phone already exists", HttpStatus.CONFLICT),
