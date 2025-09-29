@@ -1,0 +1,626 @@
+{
+	"info": {
+		"_postman_id": "e4ef21f6-c511-4c60-94c6-21f4077f28f7",
+		"name": "Nagelstudio API: CRUD",
+		"description": "# 🚀 Get started here\n\nThis template guides you through CRUD operations (GET, POST, PUT, DELETE), variables, and tests.\n\n## 🔖 **How to use this template**\n\n#### **Step 1: Send requests**\n\nRESTful APIs allow you to perform CRUD operations using the POST, GET, PUT, and DELETE HTTP methods.\n\nThis collection contains each of these [request](https://learning.postman.com/docs/sending-requests/requests/) types. Open each request and click \"Send\" to see what happens.\n\n#### **Step 2: View responses**\n\nObserve the response tab for status code (200 OK), response time, and size.\n\n#### **Step 3: Send new Body data**\n\nUpdate or add new data in \"Body\" in the POST request. Typically, Body data is also used in PUT request.\n\n```\n{\n    \"name\": \"Add your name in the body\"\n}\n\n ```\n\n#### **Step 4: Update the variable**\n\nVariables enable you to store and reuse values in Postman. We have created a [variable](https://learning.postman.com/docs/sending-requests/variables/) called `base_url` with the sample request [https://postman-api-learner.glitch.me](https://postman-api-learner.glitch.me). Replace it with your API endpoint to customize this collection.\n\n#### **Step 5: Add tests in the \"Scripts\" tab**\n\nAdding tests to your requests can help you confirm that your API is working as expected. You can write test scripts in JavaScript and view the output in the \"Test Results\" tab.\n\n<img src=\"https://content.pstmn.io/fa30ea0a-373d-4545-a668-e7b283cca343/aW1hZ2UucG5n\" width=\"2162\" height=\"1530\">\n\n## 💪 Pro tips\n\n- Use folders to group related requests and organize the collection.\n    \n- Add more [scripts](https://learning.postman.com/docs/writing-scripts/intro-to-scripts/) to verify if the API works as expected and execute workflows.\n    \n\n## 💡Related templates\n\n[API testing basics](https://go.postman.co/redirect/workspace?type=personal&collectionTemplateId=e9a37a28-055b-49cd-8c7e-97494a21eb54&sourceTemplateId=ddb19591-3097-41cf-82af-c84273e56719)  \n[API documentation](https://go.postman.co/redirect/workspace?type=personal&collectionTemplateId=e9c28f47-1253-44af-a2f3-20dce4da1f18&sourceTemplateId=ddb19591-3097-41cf-82af-c84273e56719)  \n[Authorization methods](https://go.postman.co/redirect/workspace?type=personal&collectionTemplateId=31a9a6ed-4cdf-4ced-984c-d12c9aec1c27&sourceTemplateId=ddb19591-3097-41cf-82af-c84273e56719)",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "40265327"
+	},
+	"item": [
+		{
+			"name": "Authentification",
+			"item": [
+				{
+					"name": "Register user",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Successful POST request\", function () {",
+									"    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+									"});",
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Anna Malo\",\n  \"phone\": \"0122349968\",\n  \"email\": \"annamalo670@gmail.com\",\n  \"password\": \"securePassword34\",\n  \"roles\": [\"USER\"],\n  \"dob\": \"2003-05-23\",\n  \"address\": \"123 XStreet, Frankfurt, Germany\",\n  \"gender\": \"FEMALE\"\n}\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:8080/users",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"users"
+							]
+						},
+						"description": "This is a POST request, submitting data to an API via the request body. This request submits JSON data, and the data is reflected in the response.\n\nA successful POST request typically returns a `200 OK` or `201 Created` response code."
+					},
+					"response": []
+				},
+				{
+					"name": "Introspect token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Successful POST request\", function () {",
+									"    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+									"});",
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token\":\"eyJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJ0dG5haWxzLmNvbSIsInN1YiI6ImFubmFtYWxvNjcwQGdtYWlsLmNvbSIsImV4cCI6MTc1OTEwMTc4OSwiaWF0IjoxNzU5MDk4MTg5LCJqdGkiOiI5ZWRlYzdlOS1lMWE5LTRhZjMtYTQ0OS1hZDU1MzFmNzQ0ZjAiLCJzY29wZSI6IlVTRVIifQ.u5PY65h5xevvXnokUCHiFksYsokN230XWf8WFJUEppkwfo5aHoEWfJv9gP2T7PQ5N-Bk3gCu8Bp7xi9mEpl9Zg\"\n}\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:8080/auth/introspect",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"auth",
+								"introspect"
+							]
+						},
+						"description": "This is a POST request, submitting data to an API via the request body. This request submits JSON data, and the data is reflected in the response.\n\nA successful POST request typically returns a `200 OK` or `201 Created` response code."
+					},
+					"response": []
+				},
+				{
+					"name": "Login user",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Successful POST request\", function () {",
+									"    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+									"});",
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"annamalo670@gmail.com\",\n  \"password\": \"securePassword34\"\n}\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:8080/auth/login",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"auth",
+								"login"
+							]
+						},
+						"description": "This is a POST request, submitting data to an API via the request body. This request submits JSON data, and the data is reflected in the response.\n\nA successful POST request typically returns a `200 OK` or `201 Created` response code."
+					},
+					"response": []
+				},
+				{
+					"name": "Logout user",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Successful POST request\", function () {",
+									"    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+									"});",
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token\":\"eyJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJ0dG5haWxzLmNvbSIsInN1YiI6ImFubmFtYWxvNjcwQGdtYWlsLmNvbSIsImV4cCI6MTc1OTEwMjM1NCwiaWF0IjoxNzU5MDk4NzU0LCJqdGkiOiIzYjMwYTIwZS0wN2RmLTRhMzMtODczNi1kY2U3YmI1OTk5NzQiLCJzY29wZSI6IlVTRVIifQ.wDcN-wNjy6hWsnaqPXP2rUkdvkn-57FjRFUcN-NXmgGTG2lEV0O4ICegIU-hM3ivx3QrRNl7Oh_49gkzylmAuA\"\n}\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:8080/auth/logout",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"auth",
+								"logout"
+							]
+						},
+						"description": "This is a POST request, submitting data to an API via the request body. This request submits JSON data, and the data is reflected in the response.\n\nA successful POST request typically returns a `200 OK` or `201 Created` response code."
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Successful POST request\", function () {",
+									"    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+									"});",
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token\":\"eyJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJ0dG5haWxzLmNvbSIsInN1YiI6ImFubmFtYWxvNjcwQGdtYWlsLmNvbSIsImV4cCI6MTc1OTEwMjQ2NCwiaWF0IjoxNzU5MDk4ODY0LCJqdGkiOiIzNGZhMDZlMC1hMzlhLTQ3ZmYtYTZjZi0yNTQzZDI2MDZkYTYiLCJzY29wZSI6IlVTRVIifQ.JC9VRnn0UL-zbh1uI0Ve1NGgOJjZX8a0hCrqniqf6Sf8VdcV75PJHqbMrE_m0cTyO6b3nqNejkFJIU6JjH8hRg\"\n}\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:8080/auth/refresh",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"auth",
+								"refresh"
+							]
+						},
+						"description": "This is a POST request, submitting data to an API via the request body. This request submits JSON data, and the data is reflected in the response.\n\nA successful POST request typically returns a `200 OK` or `201 Created` response code."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "User management",
+			"item": [
+				{
+					"name": "Get all users with admin JWT",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "eyJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJ0dG5haWxzLmNvbSIsInN1YiI6ImFkbWluQGdtYWlsLmNvbSIsImV4cCI6MTc1OTEwNDcwNSwiaWF0IjoxNzU5MTAxMTA1LCJqdGkiOiI1YzFhMDk3ZC0wMGVlLTQ0N2YtOThmNC00NTZmODNjMWE1ZjAiLCJzY29wZSI6IkFETUlOIn0.3lKIi_wptCdZfKj-vbB619AR0hRkQtH63bRodAJ-XogO71Av743P5oeNov2yeYrgwhX_MiyIbbTON2jbG4tA0w",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:8080/users",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"users"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get user by Id",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "eyJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJ0dG5haWxzLmNvbSIsInN1YiI6ImFubmFtYWxvNjcwQGdtYWlsLmNvbSIsImV4cCI6MTc1OTEwNTcxMCwiaWF0IjoxNzU5MTAyMTEwLCJqdGkiOiI2YjhlZGE3Ni0wNTIwLTRiYjEtODRkYi1hMDI4ZWNlZTNiMmUiLCJzY29wZSI6IlVTRVIifQ.D6Ka1bcPcRGqwU8Px97sCU-wbt54muA1kMY5N2So1ZERXIiIjTys-wZaYQzLmw2vkcYxdSAZ6zJ5E0gLQCO3ew",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:8080/users/5cf5a333-3e92-44a4-af31-3f467db2db53",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"users",
+								"5cf5a333-3e92-44a4-af31-3f467db2db53"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update user",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Successful PUT request\", function () {",
+									"    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+									"});",
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJhbm5hbWFsbzY3MEBnbWFpbC5jb20iLCJzY29wZSI6IlVTRVIiLCJpc3MiOiJ0dG5haWxzLmNvbSIsImlkIjoiNWNmNWEzMzMtM2U5Mi00NGE0LWFmMzEtM2Y0NjdkYjJkYjUzIiwiZXhwIjoxNzU5MTA4NTMxLCJpYXQiOjE3NTkxMDQ5MzEsImp0aSI6ImZjNzBiMzFjLTcxMDgtNGYxMi1hNjljLTRlZWJkNDlhMWVlZSJ9.q6KrW3ohcmPpa3gJtTRwEp4iYCz41A77rmEiKU0jOugO5T72X9Pi7_etssSSr09IVzmse9q2k_XGnavXLlk-pw",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Anna Maloca\",\n  \"phone\": \"0122349968\",\n  \"email\": \"annamalo670@gmail.com\",\n  \"password\": \"securePassword34\",\n  \"roles\": [\"USER\"],\n  \"dob\": \"2003-05-23\",\n  \"address\": \"123 XStreet, Frankfurt, Germany\",\n  \"gender\": \"FEMALE\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:8080/users/5cf5a333-3e92-44a4-af31-3f467db2db53",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"users",
+								"5cf5a333-3e92-44a4-af31-3f467db2db53"
+							]
+						},
+						"description": "This is a PUT request and it is used to overwrite an existing piece of data. For instance, after you create an entity with a POST request, you may want to modify that later. You can do that using a PUT request. You typically identify the entity being updated by including an identifier in the URL (eg. `id=1`).\n\nA successful PUT request typically returns a `200 OK`, `201 Created`, or `204 No Content` response code."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete user",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Successful DELETE request\", function () {",
+									"    pm.expect(pm.response.code).to.be.oneOf([200, 202, 204]);",
+									"});",
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/info?id=1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"info"
+							],
+							"query": [
+								{
+									"key": "id",
+									"value": "1"
+								}
+							]
+						},
+						"description": "This is a DELETE request, and it is used to delete data that was previously created via a POST request. You typically identify the entity being updated by including an identifier in the URL (eg. `id=1`).\n\nA successful DELETE request typically returns a `200 OK`, `202 Accepted`, or `204 No Content` response code."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Booking management",
+			"item": [
+				{
+					"name": "Create Booking For Guest",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:8080/booking",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"booking"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Booking for User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJhbm5hbWFsbzY3MEBnbWFpbC5jb20iLCJzY29wZSI6IlVTRVIiLCJpc3MiOiJ0dG5haWxzLmNvbSIsImlkIjoiNWNmNWEzMzMtM2U5Mi00NGE0LWFmMzEtM2Y0NjdkYjJkYjUzIiwiZXhwIjoxNzU5MTcxMzQ2LCJpYXQiOjE3NTkxNjc3NDYsImp0aSI6ImUyOWNjODQxLTVlYTAtNDJhMy1hNzA0LWJmYmNjZjQyZDBkMCJ9.zxn-Tf1SXsumCZW_6sMm6TmKnpov9lLogcUD587JHrtXUKzgfsXcvZ1H1ELBGKpDQoZMnAyAgMYqyO_WBhR-eg",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"service\": \"Tatoo\",\r\n  \"preferredDateAndTime\": \"2025-10-05T14:30:00\",\r\n  \"note\": \"I prefer a senior stylist, please.\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:8080/booking/user",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"booking",
+								"user"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get all Booking",
+					"request": {
+						"method": "GET",
+						"header": []
+					},
+					"response": []
+				},
+				{
+					"name": "Get Booking By Booking ID",
+					"request": {
+						"method": "GET",
+						"header": []
+					},
+					"response": []
+				},
+				{
+					"name": "Get Booking By User ID",
+					"request": {
+						"method": "GET",
+						"header": []
+					},
+					"response": []
+				},
+				{
+					"name": "Update booking for Admin",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJhZG1pbkBnbWFpbC5jb20iLCJzY29wZSI6IkFETUlOIiwiaXNzIjoidHRuYWlscy5jb20iLCJpZCI6IjZlNTliZTFkLTFiYzctNDY3Ny1iMjkyLWU3ZTE0ZjVjNDI2MSIsImV4cCI6MTc1OTE4MDI1OCwiaWF0IjoxNzU5MTc2NjU4LCJqdGkiOiIwNjE2NmVjOS03NDQ3LTQ3YWItYTIzYS1lODdkZjRmYjNjYTEifQ.bDnFbKR5SKzPsvX1A2UXF7wz0_LUYToyDKmNHfpknS10M2hFFKXpvjrOLSFV9p9GB5_4XWpC5tE6_F-7510Hgg",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"firstName\": \"Robert\",\r\n    \"lastName\": \"Malo\",\r\n    \"email\": \"R0BERTPo@gmail.com\",\r\n    \"phone\": \"0122349968\",\r\n    \"service\": \"Massage and herb bath\",\r\n    \"preferredDateAndTime\": \"2025-10-01T10:00:00\",\r\n    \"note\": \"Please prepare a special pubic hair treatment.\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:8080/booking/guest/4",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"booking",
+								"guest",
+								"4"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update booking for User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJhZG1pbkBnbWFpbC5jb20iLCJzY29wZSI6IkFETUlOIiwiaXNzIjoidHRuYWlscy5jb20iLCJpZCI6IjZlNTliZTFkLTFiYzctNDY3Ny1iMjkyLWU3ZTE0ZjVjNDI2MSIsImV4cCI6MTc1OTE4MDI1OCwiaWF0IjoxNzU5MTc2NjU4LCJqdGkiOiIwNjE2NmVjOS03NDQ3LTQ3YWItYTIzYS1lODdkZjRmYjNjYTEifQ.bDnFbKR5SKzPsvX1A2UXF7wz0_LUYToyDKmNHfpknS10M2hFFKXpvjrOLSFV9p9GB5_4XWpC5tE6_F-7510Hgg",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"firstName\": \"Robert\",\r\n    \"lastName\": \"Malo\",\r\n    \"email\": \"R0BERTPo@gmail.com\",\r\n    \"phone\": \"0122349968\",\r\n    \"service\": \"Massage and herb bath\",\r\n    \"preferredDateAndTime\": \"2025-10-01T10:00:00\",\r\n    \"note\": \"Please prepare a special pubic hair treatment.\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:8080/booking/guest/4",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"booking",
+								"guest",
+								"4"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Booking",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:8080/booking/2",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"booking",
+								"2"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "id",
+			"value": "1"
+		},
+		{
+			"key": "base_url",
+			"value": "https://postman-rest-api-learner.glitch.me/"
+		}
+	]
+}
