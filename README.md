@@ -7,10 +7,12 @@ A backend service for managing a nail salon. This RESTful API handles client man
 - Layered architecture: Controller, Service, Repository, DTO.
 - Centralized error handling with Global Exception Handling.
 - Unit tests with **JUnit** and **Mockito**.
-- Containerized with **Docker** and deployed on **AWS EC2**.
+- Create bookings for guest or registered user
+- Admin features: view, update, delete bookings
+- Slot validation (limit bookings per hour)
 
 ## Technologies
-Java, Spring Boot, Spring Security, JWT, REST, JPA/Hibernate, MySQL, Docker, AWS, JUnit, Mockito
+Java, Spring Boot, Spring Security, JWT, REST, JPA/Hibernate, MySQL, Docker, JUnit, Mockito
 
 ## How to Run
 1. Clone the repository
