@@ -18,29 +18,26 @@ Java, Spring Boot, Spring Security, JWT, REST, JPA/Hibernate, MySQL, Docker, JUn
 
 ### 1. Clone the Repository
 ### 2. Configure Application Properties
-Copy the example file and rename: cp src/main/resources/application.properties.example src/main/resources/application.properties
-Edit application.properties with your database credentials and JWT config if needed.
+- Copy the example file and rename: cp src/main/resources/application.properties.example src/main/resources/application.properties
+- Edit application.properties with your database credentials and JWT config if needed.
 ### 3. Configure Environment Variables (Optional)
-Copy .env.example to .env and fill in any secrets or overrides for local development: cp .env.example .env
-This is useful if you prefer using Docker environment variables instead of editing application.properties.
+- Copy .env.example to .env and fill in any secrets or overrides for local development: cp .env.example .env
+- This is useful if you prefer using Docker environment variables instead of editing application.properties.
 ### 4. Run With Docker (Recommended)
-Make sure Docker is installed.
-Build and run services:
-docker-compose up --build
-Services:
-MySQL: mysql:8.0.41
-Booking service: Spring Boot app on port 8080
+- Make sure Docker is installed.
+- Build and run services: docker-compose up --build
+- Services:
+-- MySQL: mysql:8.0.41
+-- Booking service: Spring Boot app on port 8080
 ### 5. Run Locally Without Docker
-Make sure MySQL is running locally.
-Adjust spring.datasource.url in application.properties.
-Run:
-mvn spring-boot:run
+- Make sure MySQL is running locally.
+- Adjust spring.datasource.url in application.properties.
+- Run: mvn spring-boot:run
 
 ## Postman Collection
-Import Nagelstudio API- CRUD.postman_collection.json into Postman:
-Open Postman → Import → File → Select the JSON file.
-Make sure the backend is running at http://localhost:8080.
-Test API endpoints:
-Authentication: register, login
-Bookings: create, update, view, delete
-Admin features
+- Import Nagelstudio API- CRUD.postman_collection.json into Postman: Open Postman → Import → File → Select the JSON file.
+- Make sure the backend is running at http://localhost:8080.
+- Test API endpoints:
+-- Authentication: register, login
+-- Bookings: create, update, view, delete
+-- User controll: create, update, view, delete
