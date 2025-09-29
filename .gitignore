@@ -1,9 +1,16 @@
-HELP.md
+# Maven & build
 target/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
 
+# Config sensitive
+src/main/resources/application.properties
+
+# IDEs
 ### STS ###
 .apt_generated
 .classpath
@@ -19,15 +26,19 @@ target/
 *.iml
 *.ipr
 
+# Environment variables
+.env
+
+
 ### NetBeans ###
 /nbproject/private/
 /nbbuild/
 /dist/
 /nbdist/
 /.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
 
 ### VS Code ###
 .vscode/
+
+# Misc
+HELP.md
