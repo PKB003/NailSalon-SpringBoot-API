@@ -27,8 +27,8 @@ Java, Spring Boot, Spring Security, JWT, REST, JPA/Hibernate, MySQL, Docker, JUn
 - Make sure Docker is installed.
 - Build and run services: docker-compose up --build
 - Services:
--- MySQL: mysql:8.0.41
--- Booking service: Spring Boot app on port 8080
+  - MySQL: mysql:8.0.41
+  - Booking service: Spring Boot app on port 8080
 ### 5. Run Locally Without Docker
 - Make sure MySQL is running locally.
 - Adjust spring.datasource.url in application.properties.
@@ -38,6 +38,11 @@ Java, Spring Boot, Spring Security, JWT, REST, JPA/Hibernate, MySQL, Docker, JUn
 - Import Nagelstudio API- CRUD.postman_collection.json into Postman: Open Postman → Import → File → Select the JSON file.
 - Make sure the backend is running at http://localhost:8080.
 - Test API endpoints:
--- Authentication: register, login
--- Bookings: create, update, view, delete
--- User controll: create, update, view, delete
+  - Authentication: register, login
+  - Bookings: create, update, view, delete
+  - User controll: create, update, view, delete
+
+
+
+
+
