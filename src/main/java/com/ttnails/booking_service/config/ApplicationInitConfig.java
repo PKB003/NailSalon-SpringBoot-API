@@ -1,8 +1,8 @@
 package com.ttnails.booking_service.config;
 
-import com.ttnails.booking_service.entity.User;
-import com.ttnails.booking_service.enums.Role;
-import com.ttnails.booking_service.repository.UserRepository;
+import com.ttnails.booking_service.users.entity.User;
+import com.ttnails.booking_service.common.enums.Role;
+import com.ttnails.booking_service.users.repository.UserRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;

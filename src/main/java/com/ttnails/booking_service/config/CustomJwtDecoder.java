@@ -1,7 +1,7 @@
 package com.ttnails.booking_service.config;
 
 import com.nimbusds.jwt.SignedJWT;
-import com.ttnails.booking_service.repository.InvalidTokenRepository;
+import com.ttnails.booking_service.users.repository.InvalidTokenRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;

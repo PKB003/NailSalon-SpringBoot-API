@@ -2,10 +2,10 @@ package com.ttnails.booking_service.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.ttnails.booking_service.dto.UserRequest;
-import com.ttnails.booking_service.entity.User;
-import com.ttnails.booking_service.enums.Gender;
-import com.ttnails.booking_service.service.UserService;
+import com.ttnails.booking_service.users.dto.UserRequest;
+import com.ttnails.booking_service.users.entity.User;
+import com.ttnails.booking_service.common.enums.Gender;
+import com.ttnails.booking_service.users.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
