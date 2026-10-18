@@ -2,6 +2,7 @@ package com.ttnails.booking_service.users.service;
 
 import com.ttnails.booking_service.users.dto.UserRequest;
 import com.ttnails.booking_service.users.entity.User;
+import com.ttnails.booking_service.bookings.repository.BookingRepository;
 import com.ttnails.booking_service.common.enums.Role;
 import com.ttnails.booking_service.common.exception.AppException;
 import com.ttnails.booking_service.common.exception.ErrorCode;
@@ -26,6 +27,8 @@ public class UserService {
     @Autowired
     private UserRepository userRepository;
     @Autowired
+    private BookingRepository bookingRepository;
+    @Autowired
     private PasswordEncoder passwordEncoder;
 
     @PreAuthorize("hasRole('ADMIN')")
@@ -34,7 +37,9 @@ public class UserService {
     }
     @PostAuthorize("hasRole('ADMIN') or returnObject.email == authentication.name")
     public User getUserById(UUID uuid) {
-        return userRepository.findById(uuid).orElse(null);
+        // orElseThrow thay vì orElse(null): tránh SpEL NPE khi user không tồn tại
+        return userRepository.findById(uuid)
+                .orElseThrow(() -> new NotFoundException("Can't not find user with id:" + uuid));
     }
     public User createUser(UserRequest userRequest) {
         if(userRepository.existsByEmail(userRequest.getEmail())) {
@@ -84,21 +89,41 @@ public class UserService {
      * @param userRequest request, that need to be handled
      */
     private void updateUserFromGivenRequest(User user, UserRequest userRequest, boolean canSetRole) {
-        user.setName(userRequest.getName());
-        user.setPhone(userRequest.getPhone());
-        user.setEmail(userRequest.getEmail());
+        // Chỉ cập nhật field được gửi lên — tránh overwrite null làm mất dữ liệu user
+        if (userRequest.getName() != null) {
+            user.setName(userRequest.getName());
+        }
+        if (userRequest.getPhone() != null) {
+            user.setPhone(userRequest.getPhone());
+        }
+        if (userRequest.getEmail() != null) {
+            user.setEmail(userRequest.getEmail());
+        }
         if (userRequest.getPassword() != null && !userRequest.getPassword().isEmpty()) {
             user.setPassword(passwordEncoder.encode(userRequest.getPassword()));
         }
-        user.setAddress(userRequest.getAddress());
-        user.setDob(userRequest.getDob());
-        user.setGender(userRequest.getGender());
+        if (userRequest.getAddress() != null) {
+            user.setAddress(userRequest.getAddress());
+        }
+        if (userRequest.getDob() != null) {
+            user.setDob(userRequest.getDob());
+        }
+        if (userRequest.getGender() != null) {
+            user.setGender(userRequest.getGender());
+        }
         if (canSetRole && userRequest.getRoles() != null) {
             user.setRoles(userRequest.getRoles());
         }
     }
     @PreAuthorize("hasRole('ADMIN') or @userService.isCurrentUser(#uuid)  ")
     public void deleteUser(UUID uuid) {
+        if (!userRepository.existsById(uuid)) {
+            throw new NotFoundException("Can't not find user with id:" + uuid);
+        }
+        // Chặn xóa user đang có booking — tránh FK constraint lỗi 500 và mất lịch sử lịch hẹn
+        if (bookingRepository.existsByUserId(uuid)) {
+            throw new AppException(ErrorCode.USER_HAS_BOOKINGS);
+        }
         userRepository.deleteById(uuid);
     }
     /**
