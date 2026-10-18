@@ -42,6 +42,10 @@ Java, Spring Boot, Spring Security, JWT, REST, JPA/Hibernate, MySQL, Docker, JUn
   - Bookings: create, update, view, delete
   - User controll: create, update, view, delete
 
+## API cho Frontend
+- Xem **[API-ENDPOINTS.md](API-ENDPOINTS.md)** — tài liệu đầy đủ các endpoint theo API contract
+  của frontend (auth, services, bookings, customers, stats) với shape JSON thực tế và ví dụ.
+
 
 
 
