@@ -17,8 +17,23 @@ public class AuthRequest {
     @NotBlank(message = "Password can't be blank")
     private String password;
 
+    /** Frontend gửi 1 trường duy nhất: email hoặc số điện thoại */
+    private String emailOrPhone;
+
+    public AuthRequest() {
+    }
+
+    public AuthRequest(String email, String phone, String password) {
+        this.email = email;
+        this.phone = phone;
+        this.password = password;
+    }
+
     public boolean isValid() {
-        return (phone != null && !phone.isEmpty()) || (email != null && !email.isEmpty());
+        boolean hasEmailOrPhone = emailOrPhone != null && !emailOrPhone.isBlank();
+        boolean hasEmail = email != null && !email.isBlank();
+        boolean hasPhone = phone != null && !phone.isBlank();
+        return hasEmailOrPhone || hasEmail || hasPhone;
     }
 
 }
