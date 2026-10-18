@@ -21,6 +21,12 @@ public class Booking {
     private String email;
     private String phone;
     private String service;
+    /** Khóa ngoại tới bảng services (theo API contract của frontend) */
+    private Long serviceId;
+    /** bestätigt | in Bearbeitung | abgeschlossen | storniert */
+    private String status;
+    /** Nhân viên phụ trách (optional) */
+    private String employee;
     private LocalDateTime preferredDateTime;
     private String note;
     @ManyToOne()
