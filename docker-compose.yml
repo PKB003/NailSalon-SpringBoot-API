@@ -30,6 +30,7 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       JWT_VALID_DURATION: ${JWT_VALID_DURATION}
       JWT_REFRESH_DURATION: ${JWT_REFRESH_DURATION}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     depends_on:
       - mysql
     networks:
