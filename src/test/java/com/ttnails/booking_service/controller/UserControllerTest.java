@@ -72,11 +72,12 @@ public class UserControllerTest {
                 .andExpect(MockMvcResultMatchers.status().isOk())
                 .andExpect(MockMvcResultMatchers.jsonPath("$.code").value(200))
                 .andExpect(MockMvcResultMatchers.jsonPath("$.message").value("Success"))
-                .andExpect(MockMvcResultMatchers.jsonPath("$.result.name").value("Anna"))
-                .andExpect(MockMvcResultMatchers.jsonPath("$.result.email").value("oppOopp@gmail.com"))
-                .andExpect(MockMvcResultMatchers.jsonPath("$.result.phone").value("0123456789"))
-                .andExpect(MockMvcResultMatchers.jsonPath("$.result.address").value("No 27, X Street, Y City"))
-                .andExpect(MockMvcResultMatchers.jsonPath("$.result.gender").value("FEMALE"))
-                .andExpect(MockMvcResultMatchers.jsonPath("$.timeStamp").exists());
+                .andExpect(MockMvcResultMatchers.jsonPath("$.data.name").value("Anna"))
+                .andExpect(MockMvcResultMatchers.jsonPath("$.data.email").value("oppOopp@gmail.com"))
+                .andExpect(MockMvcResultMatchers.jsonPath("$.data.phone").value("0123456789"))
+                .andExpect(MockMvcResultMatchers.jsonPath("$.data.address").value("No 27, X Street, Y City"))
+                .andExpect(MockMvcResultMatchers.jsonPath("$.data.gender").value("FEMALE"))
+                .andExpect(MockMvcResultMatchers.jsonPath("$.timestamp").exists())
+                .andExpect(MockMvcResultMatchers.jsonPath("$.result.name").value("Anna")); // alias tương thích ngược
     }
 }

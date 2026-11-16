@@ -1,0 +1,959 @@
+openapi: 3.1.0
+info:
+  title: TT Nails Booking API
+  version: 1.0.0
+  description: |
+    Contract v1 (Sprint 0 — đóng băng ngày 2026-11-16) cho backend tiệm nail tại Đức.
+
+    Quy ước chung:
+    - Tiền là EUR; DTO hiện trả chuỗi đã format (`"35 €"`), từ Sprint 3 chuyển sang số + `currency`.
+    - Mọi response thành công: `{ code, message, timestamp, traceId, data }`.
+    - Mọi response lỗi: `{ code, errorCode, message, details?, traceId, timestamp }`; HTTP status
+      tương ứng `code`, `errorCode` là mã ổn định để frontend map i18n.
+    - `X-Request-Id` (header) được echo lại và trùng với `traceId`.
+    - `GET /booking/**` là legacy, **deprecated**; dùng `GET/POST /bookings/**`.
+    - Tài liệu sinh tự động từ code: `/v3/api-docs`; Swagger UI: `/swagger-ui.html`.
+servers:
+  - url: http://localhost:8080
+    description: Local / staging
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+  - name: Users
+  - name: Services
+  - name: Bookings
+  - name: Admin
+  - name: Legacy
+
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Đăng nhập bằng email hoặc số điện thoại
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Đăng nhập thành công
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/LoginResponse' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Đăng ký tài khoản khách hàng
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Đăng ký thành công (trả kèm token)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/LoginResponse' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Làm mới access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TokenRequest' }
+      responses:
+        '200':
+          description: Token mới
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: string }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Thu hồi token hiện tại
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TokenRequest' }
+      responses:
+        '200':
+          description: Đã đăng xuất
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiEnvelope' }
+
+  /auth/introspect:
+    post:
+      tags: [Auth]
+      summary: Kiểm tra token còn hiệu lực
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TokenRequest' }
+      responses:
+        '200':
+          description: Kết quả kiểm tra
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { type: boolean }
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Thông tin người dùng đang đăng nhập
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/User' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      tags: [Auth]
+      summary: Cập nhật hồ sơ của mình
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileUpdateRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/User' }
+
+  /auth/password:
+    put:
+      tags: [Auth]
+      summary: Đổi mật khẩu
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordChangeRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          success: { type: boolean, example: true }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /users:
+    get:
+      tags: [Users]
+      summary: Danh sách người dùng (ADMIN, phân trang)
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [name, email, phone, dob]
+            default: name
+        - name: direction
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageMeta'
+                          - type: object
+                            properties:
+                              content:
+                                type: array
+                                items: { $ref: '#/components/schemas/User' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Users]
+      summary: Tạo người dùng (public cho luồng đăng ký cũ)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/User' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [Users]
+      summary: Chi tiết người dùng
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/User' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Users]
+      summary: Cập nhật người dùng
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/User' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Users]
+      summary: Xoá người dùng (chặn nếu còn booking)
+      responses:
+        '200':
+          description: Đã xoá
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiEnvelope' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /services:
+    get:
+      tags: [Services]
+      summary: Danh sách dịch vụ (public)
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Service' }
+    post:
+      tags: [Services]
+      summary: Tạo dịch vụ (ADMIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceRequest' }
+      responses:
+        '201':
+          description: Đã tạo
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Service' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /services/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    put:
+      tags: [Services]
+      summary: Cập nhật dịch vụ (ADMIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Service' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Services]
+      summary: Xoá dịch vụ (ADMIN)
+      responses:
+        '200':
+          description: Đã xoá
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiEnvelope' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /bookings:
+    get:
+      tags: [Bookings]
+      summary: Toàn bộ booking (ADMIN)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Booking' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Bookings]
+      summary: Tạo booking (guest hoặc user đăng nhập)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateBookingRequest' }
+      responses:
+        '200':
+          description: Đã tạo (HTTP 200 theo controller hiện tại)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Booking' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Slot đã đủ 10 chỗ
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /bookings/availability:
+    get:
+      tags: [Bookings]
+      summary: Các slot còn trống trong ngày (public)
+      security: []
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          example: '2026-11-20'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/AvailabilityResponse' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /bookings/my:
+    get:
+      tags: [Bookings]
+      summary: Booking của khách đang đăng nhập
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Booking' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /bookings/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/BookingId'
+    patch:
+      tags: [Bookings]
+      summary: Huỷ booking (chủ booking hoặc ADMIN)
+      responses:
+        '200':
+          description: Đã huỷ
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Booking' }
+        '400':
+          description: Quá sát giờ (<24h) hoặc lịch đã qua
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /bookings/{id}/status:
+    parameters:
+      - $ref: '#/components/parameters/BookingId'
+    patch:
+      tags: [Bookings]
+      summary: Đổi trạng thái booking (ADMIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookingStatusRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Booking' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /customers:
+    get:
+      tags: [Admin]
+      summary: Danh sách khách hàng tổng hợp (ADMIN)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Customer' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /stats/dashboard:
+    get:
+      tags: [Admin]
+      summary: Số liệu dashboard (ADMIN)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/DashboardStats' }
+
+  /booking:
+    get:
+      tags: [Legacy]
+      deprecated: true
+      summary: '[DEPRECATED] Toàn bộ booking'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/LegacyBooking' }
+
+  /booking/{id}:
+    parameters:
+      - $ref: '#/components/parameters/BookingId'
+    get:
+      tags: [Legacy]
+      deprecated: true
+      summary: '[DEPRECATED] Chi tiết booking'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/LegacyBooking' }
+    delete:
+      tags: [Legacy]
+      deprecated: true
+      summary: '[DEPRECATED] Xoá booking'
+      responses:
+        '200':
+          description: Đã xoá
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiEnvelope' }
+
+  /booking/guest:
+    post:
+      tags: [Legacy]
+      deprecated: true
+      summary: '[DEPRECATED] Guest tạo booking (không kiểm tra opening hours)'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LegacyGuestBookingRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/LegacyBooking' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    Size:
+      name: size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    BookingId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+
+  responses:
+    BadRequest:
+      description: Request không hợp lệ (validation hoặc nghiệp vụ)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Thiếu/sai token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: Không đủ quyền
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Không tìm thấy
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Xung đột trạng thái/dữ liệu (SLOT_FULL, trùng email, transition sai…)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  schemas:
+    ApiEnvelope:
+      type: object
+      required: [code, message, timestamp]
+      properties:
+        code:
+          type: integer
+          description: HTTP status
+          example: 200
+        message: { type: string, example: Success }
+        timestamp: { type: string, format: date-time }
+        traceId:
+          type: string
+          description: Trùng header X-Request-Id
+        data:
+          description: Payload — kiểu cụ thể được override ở từng operation
+        result:
+          description: Alias cũ của `data` (giữ 1 sprint để tương thích)
+
+    ErrorResponse:
+      type: object
+      required: [code, errorCode, message, timestamp]
+      properties:
+        code: { type: integer, example: 409 }
+        errorCode:
+          type: string
+          description: Mã ổn định để frontend map i18n
+          example: SLOT_FULL
+        message: { type: string }
+        details:
+          type: array
+          items: { $ref: '#/components/schemas/ValidationErrorDetail' }
+        traceId: { type: string }
+        timestamp: { type: string, format: date-time }
+
+    ValidationErrorDetail:
+      type: object
+      required: [field, message]
+      properties:
+        field: { type: string, example: date }
+        message: { type: string, example: Date must have format yyyy-MM-dd }
+
+    PageMeta:
+      type: object
+      properties:
+        page: { type: integer, example: 0 }
+        size: { type: integer, example: 20 }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+        first: { type: boolean }
+        last: { type: boolean }
+
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: Anna Müller }
+        email: { type: string, format: email }
+        phone: { type: string, example: '+4915112345678' }
+        role: { type: string, enum: [client, admin] }
+        birthday: { type: string, format: date }
+        address: { type: string }
+        gender: { type: string, enum: [MALE, FEMALE, OTHER] }
+
+    UserRequest:
+      type: object
+      properties:
+        name: { type: string }
+        phone: { type: string }
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+        verifiedPhone: { type: boolean }
+        verifiedEmail: { type: boolean }
+        roles:
+          type: array
+          items: { type: string }
+        dob: { type: string, format: date }
+        address: { type: string }
+        gender: { type: string, enum: [MALE, FEMALE, OTHER] }
+
+    LoginRequest:
+      type: object
+      properties:
+        emailOrPhone: { type: string, example: anna@test.de }
+        email: { type: string, format: email }
+        phone: { type: string }
+        password: { type: string, format: password }
+      required: [password]
+
+    LoginResponse:
+      type: object
+      properties:
+        token: { type: string }
+        user: { $ref: '#/components/schemas/User' }
+
+    RegisterRequest:
+      type: object
+      required: [name, email, phone, password]
+      properties:
+        name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+        password: { type: string, format: password }
+        birthday: { type: string, format: date }
+
+    ProfileUpdateRequest:
+      type: object
+      properties:
+        name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+        birthday: { type: string, format: date }
+
+    PasswordChangeRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string, format: password }
+        newPassword: { type: string, format: password }
+
+    TokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }
+
+    Service:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string, example: Maniküre }
+        description: { type: string }
+        duration: { type: integer, description: phút, example: 45 }
+        price: { type: number, format: double, example: 28.0 }
+        kategorie: { type: string, example: Nagelpflege }
+        beliebtheit: { type: string, example: hoch }
+
+    ServiceRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        duration: { type: integer }
+        price: { type: number }
+        kategorie: { type: string }
+        beliebtheit: { type: string }
+
+    Booking:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        serviceId: { type: integer, format: int64 }
+        service: { type: string, example: Maniküre }
+        dienstleistung: { type: string, example: Maniküre }
+        date: { type: string, format: date }
+        datum: { type: string }
+        time: { type: string, example: '14:30' }
+        uhrzeit: { type: string, example: '14:30' }
+        name: { type: string }
+        kunde: { type: string }
+        phone: { type: string }
+        email: { type: string, format: email }
+        note: { type: string }
+        employee: { type: string }
+        mitarbeiter: { type: string }
+        status:
+          type: string
+          enum: [bestätigt, 'in Bearbeitung', abgeschlossen, storniert]
+        price: { type: string, description: 'Chuỗi đã format EUR, ví dụ "35 €"' }
+
+    CreateBookingRequest:
+      type: object
+      required: [serviceId, date, time, name, phone, email]
+      properties:
+        serviceId: { type: integer, format: int64 }
+        date: { type: string, format: date, example: '2026-11-20' }
+        time: { type: string, example: '14:30', description: 'HH:mm, bước 30 phút, 09:00–18:00' }
+        name: { type: string }
+        phone: { type: string }
+        email: { type: string, format: email }
+        note: { type: string }
+
+    BookingStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [bestätigt, 'in Bearbeitung', abgeschlossen, storniert]
+        employee: { type: string }
+
+    AvailabilityResponse:
+      type: object
+      properties:
+        slots:
+          type: array
+          items: { type: string, example: '09:00' }
+
+    Customer:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        telefon: { type: string }
+        email: { type: string, format: email }
+        letzterBesuch: { type: string }
+        besuche: { type: integer, format: int64 }
+
+    DashboardStats:
+      type: object
+      properties:
+        todayBookings: { type: integer, format: int64 }
+        monthlyRevenue: { type: number, format: double }
+        totalCustomers: { type: integer, format: int64 }
+        topService: { type: string }
+        bookingsTrend: { type: string }
+        revenueTrend: { type: string }
+
+    LegacyBooking:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        service: { type: string }
+        preferredDateAndTime: { type: string, format: date-time }
+        note: { type: string }
+        userName: { type: string }
+        userEmail: { type: string, format: email }
+        userPhone: { type: string }
+
+    LegacyGuestBookingRequest:
+      type: object
+      required: [firstName, lastName, email, phone, service, preferredDateAndTime]
+      properties:
+        firstName: { type: string }
+        lastName: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string, example: '01761234567' }
+        service: { type: string }
+        preferredDateAndTime: { type: string, format: date-time }
+        note: { type: string }

@@ -1,6 +1,8 @@
 package com.ttnails.booking_service.config;
 
 import lombok.RequiredArgsConstructor;
+import com.ttnails.booking_service.security.RestAccessDeniedHandler;
+import com.ttnails.booking_service.security.RestAuthenticationEntryPoint;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -8,6 +10,8 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
@@ -28,6 +32,8 @@ import java.util.stream.Collectors;
 public class SecurityConfig {
 
     private final CustomJwtDecoder customJwtDecoder;
+    private final RestAuthenticationEntryPoint authenticationEntryPoint;
+    private final RestAccessDeniedHandler accessDeniedHandler;
 
     /** Endpoint cho phép POST không cần token (đăng ký / đăng nhập / đặt lịch guest) */
     private final String[] PUBLIC_POST_ENDPOINTS = {
@@ -36,7 +42,8 @@ public class SecurityConfig {
 
     /** Endpoint cho phép GET không cần token (trang Booking có thể xem trước khi đăng nhập) */
     private final String[] PUBLIC_GET_ENDPOINTS = {
-            "/services", "/bookings/availability"
+            "/services", "/bookings/availability", "/actuator/health", "/actuator/health/**",
+            "/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**"
     };
 
     @Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:5173}")
@@ -51,8 +58,13 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .cors(Customizer.withDefaults())
-                .csrf(csrf -> csrf.disable())
+                .csrf(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/error").permitAll()
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/users").hasRole("ADMIN") // ROLE_ADMIN
@@ -63,6 +75,8 @@ public class SecurityConfig {
                                 .decoder(customJwtDecoder)
                                 .jwtAuthenticationConverter(jwtAuthenticationConverter()) // map role
                         )
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler)
                 );
 
         return http.build();

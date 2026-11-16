@@ -129,7 +129,9 @@ class ApiContractSmokeTest {
                 .andExpect(jsonPath("$.data.slots[0]").value("09:00"));
 
         // 6. POST /bookings → booking với id làm mã xác nhận, status "in Bearbeitung"
-        String bookingBody = "{\"serviceId\":" + serviceId + ",\"date\":\"" + tomorrow + "\"," +
+        // Dùng ngày +2 (>= 24h) để bước 10 test hủy miễn phí không phụ thuộc giờ chạy test.
+        String cancellableDate = LocalDate.now().plusDays(2).toString();
+        String bookingBody = "{\"serviceId\":" + serviceId + ",\"date\":\"" + cancellableDate + "\"," +
                 "\"time\":\"14:30\",\"name\":\"Anna Müller\",\"phone\":\"0176 12345678\"," +
                 "\"email\":\"anna@test.de\",\"note\":\"Design wünsche\"}";
         MvcResult bookingResult = mockMvc.perform(post("/bookings")

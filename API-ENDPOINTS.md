@@ -16,19 +16,64 @@
 
 ### Envelope response
 
-Mọi response có dạng `{ code, message, timeStamp, data }`. Hàm `unwrap` phía frontend
-đọc được payload qua **`data`** (backend vẫn serialize song song trường `result` cũ để
-tương thích Postman/test — nội dung giống hệt nhau).
+Mọi response **thành công** có dạng:
 
 ```json
-{ "code": 200, "message": "Success", "timeStamp": "2026-04-17T10:30:00", "data": { ... } }
+{
+  "code": 200,
+  "message": "Success",
+  "timestamp": "2026-11-16T10:30:00",
+  "traceId": "8f14e45f-...",
+  "data": { ... }
+}
 ```
 
-Lỗi trả về dạng `{ "code": ..., "message": "..." }` (HTTP status khớp: 400/401/403/404/409).
+- `timestamp` (mới) và `timeStamp` (cũ) cùng tồn tại 1 sprint.
+- `data` là payload; backend vẫn serialize thêm `result` (alias cũ) để không phá Postman/test cũ.
+- `traceId` trùng với header `X-Request-Id` — dùng khi gửi log cho backend.
+
+Mọi response **lỗi** có dạng:
+
+```json
+{
+  "code": 409,
+  "errorCode": "SLOT_FULL",
+  "message": "This time slot is full. Please choose another time.",
+  "details": [
+    { "field": "date", "message": "Date must have format yyyy-MM-dd" }
+  ],
+  "traceId": "8f14e45f-...",
+  "timestamp": "2026-11-16T10:30:00"
+}
+```
+
+- HTTP status khớp `code`: 400/401/403/404/405/409/415/500.
+- `errorCode` là mã ổn định để frontend map i18n (ví dụ `VALIDATION_FAILED`, `INVALID_DATE`,
+  `SLOT_FULL`, `CANCEL_TOO_LATE`, `ACCESS_DENIED`).
+- `details` chỉ có với lỗi validation.
+
+### Phân trang (từ Sprint 0)
+
+`GET /users?page=0&size=20&sortBy=name&direction=asc` trả:
+
+```json
+{ "content": [ ... ], "page": 0, "size": 20, "totalElements": 42, "totalPages": 3,
+  "first": true, "last": false }
+```
+
+`size` tối đa 100; `sortBy` chỉ nhận `name|email|phone|dob`.
+
+### Tài liệu API
+
+- Swagger UI: `GET /swagger-ui.html`
+- OpenAPI JSON: `GET /v3/api-docs`
+- Contract đóng băng v1: [`openapi.yaml`](openapi.yaml) (dùng để generate TS client).
 
 ### Tài khoản admin mặc định (seed tự động)
 
-`emailOrPhone: admin@gmail.com` — `password: 12345678`
+`emailOrPhone: admin@gmail.com` — mật khẩu lấy từ biến môi trường `ADMIN_PASSWORD`.
+Nếu bỏ trống, backend sinh mật khẩu ngẫu nhiên và in **một lần** trong log khởi động
+(tìm dòng `ADMIN_PASSWORD is not set`). Test dùng `12345678`.
 
 ---
 
@@ -182,24 +227,31 @@ trend so sánh hôm nay/hôm qua và tháng này/tháng trước.
 
 ---
 
-## Endpoint cũ (vẫn hoạt động, giữ tương thích Postman)
+## Endpoint cũ
 
-`POST /auth/introspect|refresh|logout`, `/users` CRUD (admin), `/booking`, `/booking/guest`,
-`/booking/user/{userId}`... — frontend mới nên dùng endpoint bên trên.
+- `POST /auth/introspect|refresh|logout` — vẫn dùng được.
+- `/users` CRUD (ADMIN) — vẫn dùng được; **GET `/users` đã đổi sang DTO + phân trang**
+  (không còn trả entity/password/roles).
+- `/booking/**` — **@Deprecated**, chỉ giữ 1 sprint để tương thích Postman.
+  Frontend mới dùng `/bookings/**`. Các endpoint này **không** đi qua policy mới
+  (staff/duration/buffer) và sẽ bị xoá sau Sprint 2.
 
 ## Chạy thử
 
 ```bash
-docker-compose up --build     # hoặc: mvnw spring-boot:run (cần MySQL)
+docker compose up --build     # Flyway tự migrate; MySQL có healthcheck
+# hoặc local: ./mvnw spring-boot:run (cần MySQL + biến JWT_SECRET_KEY)
 # login nhanh:
 curl -X POST http://localhost:8080/auth/login -H "Content-Type: application/json" \
-  -d '{"emailOrPhone":"admin@gmail.com","password":"12345678"}'
+  -d '{"emailOrPhone":"admin@gmail.com","password":"<ADMIN_PASSWORD>"}'
 ```
 
 ## Test tự động
 
-`ApiContractSmokeTest` (src/test/java/.../contract/) chạy trọn luồng contract:
-register → login → me → password → services → availability → booking → my →
-bookings/customers/stats (admin) → status → cancel → kiểm tra 401/403.
-Chạy: `mvnw test` (dùng H2 in-memory, không cần MySQL).
+- `ApiContractSmokeTest` — trọn luồng contract (register → booking → admin → cancel → 401/403).
+- `ErrorContractTest` — envelope lỗi thống nhất + `/v3/api-docs`.
+- `FlywayMigrationTest` — chạy V1 trên DB trống (H2 MODE=MySQL).
+- `BookingConcurrencyTest` — Testcontainers MySQL, 20 thread; test chứng minh lỗi B-03
+  đang `@Disabled` cho tới khi S1-05 sửa khóa staff row.
 
+Chạy: `./mvnw verify` (H2 cho test thường; Testcontainers cần Docker, tự skip nếu không có).

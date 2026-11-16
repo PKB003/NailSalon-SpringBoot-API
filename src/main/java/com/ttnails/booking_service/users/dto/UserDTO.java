@@ -24,6 +24,8 @@ public class UserDTO {
     private String phone;
     private String role;
     private String birthday;
+    private String address;
+    private String gender;
 
     public static UserDTO from(User user) {
         return UserDTO.builder()
@@ -33,6 +35,8 @@ public class UserDTO {
                 .phone(user.getPhone())
                 .role(user.getRoles() != null && user.getRoles().contains(Role.ADMIN.name()) ? "admin" : "client")
                 .birthday(user.getDob() != null ? user.getDob().toString() : null)
+                .address(user.getAddress())
+                .gender(user.getGender() != null ? user.getGender().name() : null)
                 .build();
     }
 }

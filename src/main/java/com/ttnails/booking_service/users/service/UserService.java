@@ -1,14 +1,19 @@
 package com.ttnails.booking_service.users.service;
 
+import com.ttnails.booking_service.users.dto.UserDTO;
 import com.ttnails.booking_service.users.dto.UserRequest;
 import com.ttnails.booking_service.users.entity.User;
 import com.ttnails.booking_service.bookings.repository.BookingRepository;
+import com.ttnails.booking_service.common.dto.PageResponse;
 import com.ttnails.booking_service.common.enums.Role;
 import com.ttnails.booking_service.common.exception.AppException;
 import com.ttnails.booking_service.common.exception.ErrorCode;
 import com.ttnails.booking_service.common.exception.NotFoundException;
 import com.ttnails.booking_service.users.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.access.prepost.PostAuthorize;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -24,6 +29,10 @@ import java.util.UUID;
 
 @Service
 public class UserService {
+
+    /** Các field được phép sort — tránh lỗi/khai thác qua ?sortBy= tùy ý. */
+    private static final Set<String> SORTABLE_FIELDS = Set.of("name", "email", "phone", "dob");
+
     @Autowired
     private UserRepository userRepository;
     @Autowired
@@ -32,8 +41,16 @@ public class UserService {
     private PasswordEncoder passwordEncoder;
 
     @PreAuthorize("hasRole('ADMIN')")
-    public List<User> getAllUsers(){
-        return userRepository.findAll();
+    public PageResponse<UserDTO> getAllUsers(int page, int size, String sortBy, String direction) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        String safeSortBy = SORTABLE_FIELDS.contains(sortBy) ? sortBy : "name";
+        Sort.Direction safeDirection = "desc".equalsIgnoreCase(direction)
+                ? Sort.Direction.DESC : Sort.Direction.ASC;
+
+        Page<User> users = userRepository.findAll(
+                PageRequest.of(safePage, safeSize, Sort.by(safeDirection, safeSortBy)));
+        return PageResponse.from(users.map(UserDTO::from));
     }
     @PostAuthorize("hasRole('ADMIN') or returnObject.email == authentication.name")
     public User getUserById(UUID uuid) {

@@ -7,8 +7,8 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
-# Config sensitive
-src/main/resources/application.properties
+# Config sensitive — application.properties được commit với giá trị dev mặc định,
+# secret thật phải override bằng biến môi trường / .env (đã ignore bên dưới).
 
 # IDEs
 ### STS ###

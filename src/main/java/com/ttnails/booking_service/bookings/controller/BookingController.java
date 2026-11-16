@@ -15,6 +15,11 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * @deprecated Legacy API (giữ để tương thích 1 sprint). Dùng {@code /bookings} thay thế.
+ * Các endpoint ở đây KHÔNG đi qua policy mới (staff/duration/buffer) — sẽ bị xóa sau Sprint 2.
+ */
+@Deprecated
 @RestController
 @RequestMapping("/booking")
 public class BookingController {
