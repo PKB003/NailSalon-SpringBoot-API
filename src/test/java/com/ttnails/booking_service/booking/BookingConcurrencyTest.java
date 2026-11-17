@@ -1,14 +1,20 @@
 package com.ttnails.booking_service.booking;
 
 import com.ttnails.booking_service.bookings.dto.NewBookingRequest;
+import com.ttnails.booking_service.bookings.repository.BookingItemRepository;
 import com.ttnails.booking_service.bookings.repository.BookingRepository;
 import com.ttnails.booking_service.bookings.service.BookingService;
+import com.ttnails.booking_service.common.enums.SkillLevel;
 import com.ttnails.booking_service.common.exception.AppException;
 import com.ttnails.booking_service.common.exception.ErrorCode;
 import com.ttnails.booking_service.services.entity.Service;
 import com.ttnails.booking_service.services.repository.ServiceRepository;
+import com.ttnails.booking_service.staff.entity.Staff;
+import com.ttnails.booking_service.staff.entity.StaffSkill;
+import com.ttnails.booking_service.staff.repository.StaffRepository;
+import com.ttnails.booking_service.staff.repository.StaffSkillRepository;
+import com.ttnails.booking_service.support.TestSupport;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -20,32 +26,35 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * S0-07 — Testcontainers MySQL + concurrency cho booking hiện tại.
+ * S1-05 — chống double-booking trên MySQL thật (Testcontainers).
  *
- * <p>Chạy trên MySQL thật (không phải H2) để hành vi khóa/transaction giống production.
- * Khi máy không có Docker, toàn bộ class bị skip ({@code disabledWithoutDocker = true}),
- * CI của GitHub Actions có Docker nên vẫn chạy.</p>
+ * <p>Kỳ vọng sau khi khóa staff row + unique index {@code uk_booking_staff_start}:</p>
+ * <ul>
+ *   <li>20 thread cùng thợ + cùng slot → đúng <b>1</b> thành công, 19 nhận 409 {@code SLOT_TAKEN}.</li>
+ *   <li>Nhiều thợ: số booking thành công = số thợ rảnh (không vượt).</li>
+ *   <li>Các slot khác nhau trên cùng thợ đều thành công (khóa không chặn nhầm).</li>
+ * </ul>
+ *
+ * <p>Khi máy không có Docker, class bị skip ({@code disabledWithoutDocker = true}).</p>
  */
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest
 class BookingConcurrencyTest {
-
-    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
 
     @Container
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0.41")
@@ -64,35 +73,59 @@ class BookingConcurrencyTest {
     }
 
     @Autowired
-    private BookingService bookingService;
-
+    BookingService bookingService;
     @Autowired
-    private ServiceRepository serviceRepository;
-
+    ServiceRepository serviceRepository;
     @Autowired
-    private BookingRepository bookingRepository;
+    BookingRepository bookingRepository;
+    @Autowired
+    BookingItemRepository bookingItemRepository;
+    @Autowired
+    StaffRepository staffRepository;
+    @Autowired
+    StaffSkillRepository staffSkillRepository;
 
-    private Long serviceId;
-    private LocalDateTime slot;
+    Long serviceId;
+    List<Long> staffIds;
+    LocalDateTime slot;
 
     @BeforeEach
     void setUp() {
+        bookingItemRepository.deleteAll();
         bookingRepository.deleteAll();
+
         Service service = serviceRepository.save(Service.builder()
-                .name("Test Maniküre")
+                .name("Concurrency Service " + System.nanoTime())
                 .duration(30)
+                .bufferMinutes(10)
                 .price(28.0)
                 .build());
         serviceId = service.getId();
-        // Ngày mai 10:00 — trong giờ mở cửa, đúng bước 30 phút, luôn ở tương lai.
-        slot = LocalDate.now().plusDays(1).atTime(10, 0);
+
+        List<Staff> staff = staffRepository.findByActiveTrueOrderByIdAsc();
+        staffIds = staff.stream().map(Staff::getId).toList();
+        // Cấp skill cho dịch vụ test để thợ seed nhận được lịch
+        for (Staff member : staff) {
+            boolean has = staffSkillRepository.findByStaffId(member.getId()).stream()
+                    .anyMatch(ss -> ss.getService().getId().equals(serviceId));
+            if (!has) {
+                staffSkillRepository.save(StaffSkill.builder()
+                        .staff(member).service(service).level(SkillLevel.ADVANCED).build());
+            }
+        }
+        assertThat(staffIds).hasSizeGreaterThanOrEqualTo(3);
+
+        // Ngày mai (bỏ Chủ nhật) 10:00 — trong ca seed 09:00–18:00, đúng bước 30'.
+        LocalDate date = TestSupport.workdayAfter(1);
+        slot = date.atTime(10, 0);
     }
 
-    private void createBooking(LocalDateTime dateTime) {
+    private void createBooking(LocalDateTime dateTime, Long staffId) {
         NewBookingRequest request = new NewBookingRequest();
-        request.setServiceId(serviceId);
-        request.setDate(dateTime.format(DATE));
-        request.setTime(dateTime.format(TIME));
+        request.setServiceIds(List.of(serviceId));
+        request.setStaffId(staffId);
+        request.setDate(dateTime.toLocalDate().format(TestSupport.DATE));
+        request.setTime(dateTime.toLocalTime().format(TestSupport.TIME));
         request.setName("Test Kunde");
         request.setPhone("+4915112345678");
         request.setEmail("kunde@example.de");
@@ -100,68 +133,15 @@ class BookingConcurrencyTest {
     }
 
     @Test
-    void sequentialBookingEnforcesCapacityOfTen() {
-        for (int i = 0; i < BookingService.SLOT_CAPACITY; i++) {
-            createBooking(slot);
-        }
-
-        assertThat(bookingRepository.count()).isEqualTo(BookingService.SLOT_CAPACITY);
-        assertThatThrownBy(() -> createBooking(slot))
-                .isInstanceOf(AppException.class)
-                .extracting(ex -> ((AppException) ex).getErrorCode())
-                .isEqualTo(ErrorCode.SLOT_FULL);
-        assertThat(bookingRepository.count()).isEqualTo(BookingService.SLOT_CAPACITY);
-    }
-
-    @Test
-    void concurrentBookingsOnDifferentSlotsAllSucceed() throws Exception {
-        int threads = 10;
-
-        // Mồi 1 booking/slot để index có record: tránh gap-lock toàn index khi bảng trống
-        // (đây là hành vi thật của InnoDB REPEATABLE READ — sẽ được xử lý ở S1-05).
-        for (int i = 0; i < threads; i++) {
-            createBooking(slot.plusMinutes(30L * i));
-        }
-        assertThat(bookingRepository.count()).isEqualTo(threads);
-
-        ExecutorService pool = Executors.newFixedThreadPool(threads);
-        CountDownLatch startSignal = new CountDownLatch(1);
-        List<Future<?>> futures = new ArrayList<>();
-
-        try {
-            for (int i = 0; i < threads; i++) {
-                LocalDateTime differentSlot = slot.plusMinutes(30L * i);
-                futures.add(pool.submit(() -> {
-                    startSignal.await();
-                    createBooking(differentSlot);
-                    return null;
-                }));
-            }
-            startSignal.countDown();
-            for (Future<?> future : futures) {
-                future.get(30, TimeUnit.SECONDS);
-            }
-        } finally {
-            pool.shutdownNow();
-        }
-
-        assertThat(bookingRepository.count()).isEqualTo(threads * 2);
-    }
-
-    /**
-     * Chứng minh lỗi B-03: khi slot chưa có booking nào, {@code SELECT ... FOR UPDATE}
-     * không khóa được dòng "ảo" nên nhiều thread cùng lọt qua bước đếm capacity.
-     *
-     * <p>Bật test này sau khi S1-05 sửa bằng khóa staff row + unique index
-     * (lúc đó kỳ vọng: đúng {@link BookingService#SLOT_CAPACITY} booking thành công).</p>
-     */
-    @Disabled("B-03: bật sau S1-05 (khóa staff row + unique index chống double-booking)")
-    @Test
-    void concurrentBookingsOnSameSlotNeverExceedCapacity() throws Exception {
+    void twentyThreadsOnSameStaffAndSlotOnlyOneSucceeds() throws Exception {
         int threads = 20;
+        Long staffId = staffIds.get(0);
+
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         CountDownLatch startSignal = new CountDownLatch(1);
         AtomicInteger success = new AtomicInteger();
+        AtomicInteger slotTaken = new AtomicInteger();
+        Set<String> unexpected = ConcurrentHashMap.newKeySet();
         List<Future<?>> futures = new ArrayList<>();
 
         try {
@@ -169,23 +149,168 @@ class BookingConcurrencyTest {
                 futures.add(pool.submit(() -> {
                     startSignal.await();
                     try {
-                        createBooking(slot);
+                        createBooking(slot, staffId);
                         success.incrementAndGet();
-                    } catch (AppException expectedWhenFixed) {
-                        // SLOT_FULL là kết quả đúng sau khi sửa
+                    } catch (AppException ex) {
+                        if (ex.getErrorCode() == ErrorCode.SLOT_TAKEN) {
+                            slotTaken.incrementAndGet();
+                        } else {
+                            unexpected.add(ex.getErrorCode().name() + ": " + ex.getMessage());
+                        }
+                    } catch (Exception ex) {
+                        unexpected.add(ex.getClass().getSimpleName() + ": " + ex.getMessage());
                     }
                     return null;
                 }));
             }
             startSignal.countDown();
             for (Future<?> future : futures) {
-                future.get(30, TimeUnit.SECONDS);
+                future.get(60, TimeUnit.SECONDS);
             }
         } finally {
             pool.shutdownNow();
         }
 
-        assertThat(success.get()).isLessThanOrEqualTo(BookingService.SLOT_CAPACITY);
-        assertThat(bookingRepository.count()).isLessThanOrEqualTo(BookingService.SLOT_CAPACITY);
+        assertThat(unexpected).isEmpty();
+        assertThat(success.get()).as("chỉ đúng 1 booking được tạo").isEqualTo(1);
+        assertThat(slotTaken.get()).isEqualTo(threads - 1);
+        assertThat(bookingRepository.count()).isEqualTo(1);
+        assertThat(bookingItemRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void manyStaffSameSlotOnlyAsManyAsFreeStaffSucceed() throws Exception {
+        int threads = 20;
+
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch startSignal = new CountDownLatch(1);
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger slotTaken = new AtomicInteger();
+        Set<String> unexpected = ConcurrentHashMap.newKeySet();
+        List<Future<?>> futures = new ArrayList<>();
+
+        try {
+            for (int i = 0; i < threads; i++) {
+                futures.add(pool.submit(() -> {
+                    startSignal.await();
+                    try {
+                        // staffId = null → hệ thống tự chọn thợ ít việc nhất
+                        createBooking(slot, null);
+                        success.incrementAndGet();
+                    } catch (AppException ex) {
+                        if (ex.getErrorCode() == ErrorCode.SLOT_TAKEN) {
+                            slotTaken.incrementAndGet();
+                        } else {
+                            unexpected.add(ex.getErrorCode().name() + ": " + ex.getMessage());
+                        }
+                    } catch (Exception ex) {
+                        unexpected.add(ex.getClass().getSimpleName() + ": " + ex.getMessage());
+                    }
+                    return null;
+                }));
+            }
+            startSignal.countDown();
+            for (Future<?> future : futures) {
+                future.get(60, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(unexpected).isEmpty();
+        assertThat(success.get()).as("mỗi thợ chỉ nhận 1 booking").isEqualTo(staffIds.size());
+        assertThat(slotTaken.get()).isEqualTo(threads - staffIds.size());
+        assertThat(bookingRepository.count()).isEqualTo(staffIds.size());
+
+        // Mọi booking đều rơi vào thợ khác nhau
+        assertThat(bookingRepository.findAll().stream()
+                .map(b -> b.getStaff().getId())
+                .collect(Collectors.toSet()))
+                .hasSize(staffIds.size());
+    }
+
+    @Test
+    void differentSlotsOnSameStaffAllSucceed() throws Exception {
+        int threads = 8;
+        Long staffId = staffIds.get(0);
+        LocalDateTime firstSlot = slot.withHour(9).withMinute(0);
+
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch startSignal = new CountDownLatch(1);
+        AtomicInteger success = new AtomicInteger();
+        Set<String> unexpected = ConcurrentHashMap.newKeySet();
+        List<Future<?>> futures = new ArrayList<>();
+
+        try {
+            for (int i = 0; i < threads; i++) {
+                // Cách nhau 60' để không chồng buffer (30' + 10')
+                LocalDateTime differentSlot = firstSlot.plusMinutes(60L * i);
+                futures.add(pool.submit(() -> {
+                    startSignal.await();
+                    try {
+                        createBooking(differentSlot, staffId);
+                        success.incrementAndGet();
+                    } catch (Exception ex) {
+                        unexpected.add(ex.getClass().getSimpleName() + ": " + ex.getMessage());
+                    }
+                    return null;
+                }));
+            }
+            startSignal.countDown();
+            for (Future<?> future : futures) {
+                future.get(60, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(unexpected).isEmpty();
+        assertThat(success.get()).isEqualTo(threads);
+        assertThat(bookingRepository.count()).isEqualTo(threads);
+    }
+
+    @Test
+    void multiServiceBookingReservesWholeSpan() {
+        Long staffId = staffIds.get(0);
+        Service second = serviceRepository.save(Service.builder()
+                .name("Concurrency Second " + System.nanoTime())
+                .duration(45)
+                .bufferMinutes(10)
+                .price(30.0)
+                .build());
+        staffSkillRepository.save(StaffSkill.builder()
+                .staff(staffRepository.findById(staffId).orElseThrow())
+                .service(second).level(SkillLevel.ADVANCED).build());
+
+        NewBookingRequest request = new NewBookingRequest();
+        request.setServiceIds(List.of(serviceId, second.getId()));
+        request.setStaffId(staffId);
+        request.setDate(slot.toLocalDate().format(TestSupport.DATE));
+        request.setTime(slot.toLocalTime().format(TestSupport.TIME));
+        request.setName("Multi Service");
+        request.setPhone("+4915112345678");
+        request.setEmail("multi@example.de");
+        bookingService.createBooking(request, null);
+
+        var booking = bookingRepository.findAll().get(0);
+        // 30' + 45' = 75' (end), buffer 2 × 10' = 95' (buffer_end)
+        assertThat(booking.getEndAt()).isEqualTo(slot.plusMinutes(75));
+        assertThat(booking.getBufferEndAt()).isEqualTo(slot.plusMinutes(95));
+
+        // Slot 10:30 bị chặn vì buffer_end = 11:35
+        NewBookingRequest overlapping = new NewBookingRequest();
+        overlapping.setServiceIds(List.of(second.getId()));
+        overlapping.setStaffId(staffId);
+        overlapping.setDate(slot.toLocalDate().format(TestSupport.DATE));
+        overlapping.setTime("10:30");
+        overlapping.setName("Overlap");
+        overlapping.setPhone("+4915112345678");
+        overlapping.setEmail("overlap@example.de");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> bookingService.createBooking(overlapping, null))
+                .isInstanceOf(AppException.class)
+                .extracting(ex -> ((AppException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.SLOT_TAKEN);
     }
 }

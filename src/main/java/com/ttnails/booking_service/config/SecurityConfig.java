@@ -37,12 +37,13 @@ public class SecurityConfig {
 
     /** Endpoint cho phép POST không cần token (đăng ký / đăng nhập / đặt lịch guest) */
     private final String[] PUBLIC_POST_ENDPOINTS = {
-            "/auth/login", "/auth/register", "/users", "/booking/guest", "/bookings"
+            "/auth/login", "/auth/register", "/booking/guest", "/bookings"
     };
 
     /** Endpoint cho phép GET không cần token (trang Booking có thể xem trước khi đăng nhập) */
     private final String[] PUBLIC_GET_ENDPOINTS = {
-            "/services", "/bookings/availability", "/actuator/health", "/actuator/health/**",
+            "/services", "/availability", "/bookings/availability",
+            "/actuator/health", "/actuator/health/**",
             "/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**"
     };
 
@@ -68,6 +69,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/users").hasRole("ADMIN") // ROLE_ADMIN
+                        .requestMatchers("/staff/me", "/staff/me/**").authenticated()
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2

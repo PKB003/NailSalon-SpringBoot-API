@@ -2,6 +2,7 @@ package com.ttnails.booking_service.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.ttnails.booking_service.support.TestSupport;
 import com.ttnails.booking_service.users.dto.UserRequest;
 import com.ttnails.booking_service.users.entity.User;
 import com.ttnails.booking_service.common.enums.Gender;
@@ -66,7 +67,10 @@ public class UserControllerTest {
         Mockito.when(userService.createUser(ArgumentMatchers.any()))
                 .thenReturn(user);
 
+        String adminToken = TestSupport.adminToken(mockMvc, objectMapper);
+
         mockMvc.perform(MockMvcRequestBuilders.post("/users")
+                        .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(userRequest)))
                 .andExpect(MockMvcResultMatchers.status().isOk())

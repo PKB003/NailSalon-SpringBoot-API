@@ -58,6 +58,7 @@ public class UserService {
         return userRepository.findById(uuid)
                 .orElseThrow(() -> new NotFoundException("Can't not find user with id:" + uuid));
     }
+    @PreAuthorize("hasRole('ADMIN')")
     public User createUser(UserRequest userRequest) {
         if(userRepository.existsByEmail(userRequest.getEmail())) {
             throw new AppException(ErrorCode.EMAIL_IS_ALREADY_USED);

@@ -21,6 +21,9 @@ public enum ErrorCode {
     APPOINTMENT_PASSED("Termin hat bereits stattgefunden und kann nicht mehr storniert werden", HttpStatus.BAD_REQUEST),
     OUTSIDE_OPENING_HOURS("Termin muss zwischen 09:00 und 18:00 liegen", HttpStatus.BAD_REQUEST),
     INVALID_LOGIN_REQUEST("You must enter at least email or phone", HttpStatus.BAD_REQUEST),
+    TOO_MANY_SERVICES("Es können maximal 3 Leistungen pro Termin gebucht werden", HttpStatus.BAD_REQUEST),
+    INVALID_SLOT("Der Termin muss auf dem Buchungsraster liegen", HttpStatus.BAD_REQUEST),
+    INVALID_TIME_RANGE("Startzeit muss vor der Endzeit liegen", HttpStatus.BAD_REQUEST),
 
     // 401 / 403
     FAILED_AUTHENTICATED("Wrong log-in infos", HttpStatus.UNAUTHORIZED),
@@ -33,6 +36,13 @@ public enum ErrorCode {
     METHOD_NOT_ALLOWED("HTTP method not allowed", HttpStatus.METHOD_NOT_ALLOWED),
     UNSUPPORTED_MEDIA_TYPE("Unsupported media type", HttpStatus.UNSUPPORTED_MEDIA_TYPE),
     SLOT_FULL("This time slot is full. Please choose another time.", HttpStatus.CONFLICT),
+    SLOT_TAKEN("Dieser Zeitraum ist bereits vergeben. Bitte wählen Sie eine andere Zeit.", HttpStatus.CONFLICT),
+    NO_STAFF_AVAILABLE("Für die gewählte Zeit ist kein Mitarbeiter verfügbar", HttpStatus.CONFLICT),
+    SHIFT_OVERLAP("Die Schicht überschneidet sich mit einer bestehenden Schicht", HttpStatus.CONFLICT),
+    TIME_OFF_OVERLAP("Die Abwesenheit überschneidet sich mit einer bestehenden Abwesenheit", HttpStatus.CONFLICT),
+    TIME_OFF_CONFLICTS_BOOKING("Die Abwesenheit überschneidet sich mit gebuchten Terminen", HttpStatus.CONFLICT),
+    STAFF_USER_ALREADY_LINKED("Dieser Benutzer ist bereits mit einem Mitarbeiter verknüpft", HttpStatus.CONFLICT),
+    SERVICE_IN_USE("Die Leistung wird noch von Terminen verwendet und kann nicht gelöscht werden", HttpStatus.CONFLICT),
     USER_EXISTED("User is already existed", HttpStatus.CONFLICT),
     EMAIL_IS_ALREADY_USED("Email already exists", HttpStatus.CONFLICT),
     PHONE_IS_ALREADY_USED("Phone already exists", HttpStatus.CONFLICT),

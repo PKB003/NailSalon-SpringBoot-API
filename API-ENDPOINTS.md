@@ -10,9 +10,12 @@
 - **CORS:** đã mở sẵn cho `http://localhost:3000` và `http://localhost:5173`
   (có thể đổi qua property `app.cors.allowed-origins`).
 - **Auth:** gửi header `Authorization: Bearer <token>` cho mọi endpoint (trừ đăng nhập/đăng ký,
-  GET `/services` và GET `/bookings/availability` — 2 endpoint này public).
+  GET `/services`, GET `/availability` và GET `/bookings/availability` — các endpoint này public).
 - **401** (token thiếu/hết hạn/logout) → frontend tự xóa token, về `/auth`.
 - **403** (đã đăng nhập nhưng không đủ quyền — ví dụ gọi endpoint admin bằng token client).
+- **Vai trò (S1):** `USER` (khách), `NAIL_TECH` (thợ — chỉ lịch của mình),
+  `RECEPTIONIST` (lễ tân — đọc lịch, đổi trạng thái), `MANAGER` (quản lý thợ/ca),
+  `ADMIN` (toàn quyền). `POST /users` giờ chỉ ADMIN (trước đây public).
 
 ### Envelope response
 
@@ -95,7 +98,7 @@ Nếu bỏ trống, backend sinh mật khẩu ngẫu nhiên và in **một lần
     "name": "Anna Müller",
     "email": "anna.m@email.de",
     "phone": "017612345678",
-    "role": "client",              // "client" | "admin" → điều hướng /client hay /admin
+    "role": "USER",                // USER | NAIL_TECH | RECEPTIONIST | MANAGER | ADMIN
     "birthday": "1990-03-15"       // optional, null nếu không có
   }
 }
@@ -144,56 +147,170 @@ Backend đã **seed sẵn 6 dịch vụ mẫu** khi DB trống.
 
 ---
 
-## 3. Bookings
+## 3. Availability (Sprint 1)
 
-### GET `/bookings/availability?date=YYYY-MM-DD`
-```json
-// Response → data
-{ "slots": ["09:00", "09:30", "10:00", ...] }   // chỉ slot còn trống
-```
-Giờ mở cửa 09:00–18:00, bước 30 phút; slot trong quá khứ bị ẩn; ngày quá khứ → mảng rỗng.
+### GET `/availability?date=YYYY-MM-DD&serviceIds=1,2&staffId=3` (public)
 
-### POST `/bookings` (public — có token sẽ tự gắn user, không token vẫn đặt được)
+Engine availability v2: chỉ trả slot mà thợ **có ca**, **có đủ kỹ năng**, **không nghỉ phép**
+và **không trùng booking** chưa terminal. Hỗ trợ đặt 1–3 dịch vụ liên tiếp bởi cùng 1 thợ.
+
 ```json
 // Request
-{ "serviceId": 3, "date": "2026-04-17", "time": "14:30",
+GET /availability?date=2026-11-20&serviceIds=2,1
+// staffId optional — bỏ trống = mọi thợ đủ điều kiện
+```
+```json
+// Response → data
+{
+  "date": "2026-11-20",
+  "timezone": "Europe/Berlin",
+  "slotStepMinutes": 30,
+  "totalDurationMinutes": 105,       // Σ duration (60 + 45), KHÔNG gồm buffer
+  "staff": [
+    { "staffId": 1, "name": "Minh",
+      "slots": [ { "start": "09:00", "end": "10:45" }, { "start": "09:30", "end": "11:15" } ] },
+    { "staffId": 2, "name": "Linh", "slots": [] }
+  ],
+  "anyAvailable": ["09:00", "09:30", "10:00"]   // union giờ bắt đầu, đã sắp xếp
+}
+```
+
+- `end = start + Σduration`. Buffer 10' **chỉ cộng ở cuối toàn bộ appointment**
+  (`bufferEnd = start + Σ(duration + buffer)`), nên slot kế tiếp phải bắt đầu sau `bufferEnd`.
+- `serviceIds` nhận `serviceIds=1,2` hoặc `serviceIds=1&serviceIds=2`; tối đa 3
+  (quá 3 → `400 TOO_MANY_SERVICES`). `serviceId` đơn lẻ vẫn được chấp nhận.
+- Lỗi: `400 INVALID_DATE` (sai định dạng), `400 INVALID_REQUEST` (thiếu dịch vụ),
+  `404` (service/staff không tồn tại).
+- **Đây là endpoint frontend nên dùng** (p95 < 300ms trên dữ liệu seed).
+
+### GET `/bookings/availability?date=YYYY-MM-DD` (legacy — deprecated)
+```json
+// Response → data
+{ "slots": ["09:00", "09:30", "10:00", ...] }   // union giờ bắt đầu của mọi thợ
+```
+Giữ 1 sprint để tương thích; dùng `GET /availability` thay thế.
+
+---
+
+## 4. Bookings
+
+### POST `/bookings` (public — có token sẽ tự gắn user, không token vẫn đặt được)
+
+S1: gửi `serviceIds` (1–3, ưu tiên) hoặc `serviceId` (legacy), và có thể chọn `staffId`.
+
+```json
+// Request — 2 dịch vụ liên tiếp với thợ cụ thể
+{ "serviceIds": [2, 1], "staffId": 1,
+  "date": "2026-11-20", "time": "09:00",
   "name": "Anna Müller", "phone": "0176 12345678",
   "email": "anna.m@email.de", "note": "Wünsche zum Design" }
 ```
 ```json
 // Response → data
 {
-  "id": 101,                 // ← dùng làm mã xác nhận
-  "serviceId": 3,
-  "service": "Shellac / Gellack",
-  "date": "17.04.2026",      // dd.MM.yyyy
-  "time": "14:30",           // HH:mm
+  "id": 101,                          // ← dùng làm mã xác nhận
+  "serviceId": 2,                     // dịch vụ đầu tiên
+  "service": "Pediküre + Maniküre",
+  "dienstleistung": "Pediküre + Maniküre",
+  "date": "20.11.2026",               // dd.MM.yyyy
+  "datum": "20.11.2026",
+  "time": "09:00",                    // HH:mm
+  "uhrzeit": "09:00",
+  "endDate": "20.11.2026",            // start + Σduration (không gồm buffer)
+  "endTime": "10:45",
+  "endUhrzeit": "10:45",
   "name": "Anna Müller",
+  "kunde": "Anna Müller",
   "phone": "0176 12345678",
   "email": "anna.m@email.de",
   "note": "Wünsche zum Design",
-  "employee": null,
+  "employee": "Minh",                 // tên thợ
+  "mitarbeiter": "Minh",
+  "staffId": 1,
+  "staffName": "Minh",
   "status": "in Bearbeitung",
-  "price": "35 €"
+  "price": "63 €",                    // snapshot tại thời điểm đặt
+  "priceSnapshot": 63.00,
+  "currency": "EUR",
+  "totalDurationMinutes": 105,
+  "items": [
+    { "serviceId": 2, "name": "Pediküre", "startTime": "09:00", "endTime": "10:00",
+      "duration": 60, "price": 35.0, "currency": "EUR", "staffId": 1, "staffName": "Minh" },
+    { "serviceId": 1, "name": "Maniküre", "startTime": "10:00", "endTime": "10:45",
+      "duration": 45, "price": 28.0, "currency": "EUR", "staffId": 1, "staffName": "Minh" }
+  ]
 }
 ```
+
+- Các dịch vụ chạy **liên tiếp không gap**; buffer dồn ở cuối (`items` không có buffer).
+- `staffId` null → tự chọn thợ **ít phút bận nhất trong ngày** (tie-break `id` ASC).
+- Đặt cùng slot cho cùng thợ một cách đồng thời: chỉ **1 request thành công**;
+  request còn lại nhận `409 SLOT_TAKEN` (khóa staff row + kiểm tra overlap trong transaction).
+- Không thợ nào đủ điều kiện (thiếu skill/không có ca/ngày nghỉ) → `409 NO_STAFF_AVAILABLE`.
+- Ngoài giờ mở cửa hoặc phút lệch bước 30' → `400 OUTSIDE_OPENING_HOURS` / `400 INVALID_SLOT`.
+- Quá 3 dịch vụ → `400 TOO_MANY_SERVICES`; service/thợ không tồn tại → `404`.
 
 ### Booking shape chung
 Backend trả **song song field tiếng Anh (client view) và tiếng Đức (admin view)** trong cùng
 1 object nên cả 2 view dùng chung shape:
 - `id`, `serviceId`, `phone`, `email`, `note`
-- client view: `service`, `date`, `time`, `name`, `employee`, `status`, `price` (`"35 €"`)
-- admin view: `dienstleistung`, `datum`, `uhrzeit`, `kunde`, `mitarbeiter` (giá trị trùng các field tiếng Anh)
+- client view: `service`, `date`, `time`, `endDate`, `endTime`, `name`, `employee`, `status`, `price` (`"63 €"`)
+- admin view: `dienstleistung`, `datum`, `uhrzeit`, `endUhrzeit`, `kunde`, `mitarbeiter` (giá trị trùng field tiếng Anh)
+- S1: `staffId`, `staffName`, `priceSnapshot` (EUR), `currency`, `totalDurationMinutes`, `items[]`
 - `status`: `bestätigt` | `in Bearbeitung` | `abgeschlossen` | `storniert` (booking mới luôn `in Bearbeitung`)
 
 | Method | Endpoint | Quyền | Response |
 |---|---|---|---|
 | GET | `/bookings/my` | token khách | `booking[]` của khách, mới nhất trước |
-| GET | `/bookings` | admin | `booking[]` toàn bộ, mới nhất trước |
-| PATCH | `/bookings/:id/cancel` | chủ booking hoặc admin | booking (`status = "storniert"`). **Chính sách 24h:** khách chỉ tự hủy được khi còn ≥ 24h trước giờ hẹn; trong vòng 24h → `400 { message: "Stornierung nur bis 24 Stunden vor dem Termin möglich, bitte anrufen" }` (frontend hiện tooltip "bitte anrufen"). Admin được phép hủy mọi lúc (trừ lịch đã `abgeschlossen`/`storniert` — terminal, bất biến). Lịch đã qua giờ → `400 APPOINTMENT_PASSED`; cancel 2 lần → `409`; cancel lịch đã hoàn thành → `409`. |
-| PATCH | `/bookings/:id/status` | admin | booking — body `{ "status": "...", "employee": "Minh"? }`. Tuân **ma trận transition**: `in Bearbeitung` ↔ `bestätigt`, cả 2 → `abgeschlossen`/`storniert`; `abgeschlossen`/`storniert` là **terminal** (khóa mọi transition kể cả admin, bảo vệ doanh thu). Đóng lịch chưa tới giờ → `409 COMPLETION_TOO_EARLY`; transition cấm → `409 INVALID_STATUS_TRANSITION`. |
+| GET | `/bookings` | ADMIN/MANAGER/RECEPTIONIST | `booking[]` toàn bộ, mới nhất trước |
+| PATCH | `/bookings/:id/cancel` | chủ booking hoặc ADMIN/MANAGER/RECEPTIONIST | booking (`status = "storniert"`). **Chính sách 24h:** khách chỉ tự hủy được khi còn ≥ 24h trước giờ hẹn; trong vòng 24h → `400 { message: "Stornierung nur bis 24 Stunden vor dem Termin möglich, bitte anrufen" }` (frontend hiện tooltip "bitte anrufen"). Admin được phép hủy mọi lúc (trừ lịch đã `abgeschlossen`/`storniert` — terminal, bất biến). Lịch đã qua giờ → `400 APPOINTMENT_PASSED`; cancel 2 lần → `409`; cancel lịch đã hoàn thành → `409`. |
+| PATCH | `/bookings/:id/status` | ADMIN/MANAGER/RECEPTIONIST | booking — body `{ "status": "...", "employee": "Minh"? }`. Tuân **ma trận transition**: `in Bearbeitung` ↔ `bestätigt`, cả 2 → `abgeschlossen`/`storniert`; `abgeschlossen`/`storniert` là **terminal** (khóa mọi transition kể cả admin, bảo vệ doanh thu). Đóng lịch chưa tới giờ → `409 COMPLETION_TOO_EARLY`; transition cấm → `409 INVALID_STATUS_TRANSITION`. |
 
-## 4. Customers (admin)
+## 5. Staff & lịch làm việc (Sprint 1)
+
+| Method | Endpoint | Quyền | Ghi chú |
+|---|---|---|---|
+| GET | `/staff?includeInactive=false` | ADMIN/MANAGER/RECEPTIONIST | Danh sách thợ + kỹ năng |
+| POST | `/staff` | ADMIN/MANAGER | Tạo thợ |
+| GET | `/staff/:id` | ADMIN/MANAGER/RECEPTIONIST | Chi tiết thợ |
+| PUT | `/staff/:id` | ADMIN/MANAGER | Cập nhật; `skills != null` thay toàn bộ kỹ năng |
+| DELETE | `/staff/:id` | ADMIN/MANAGER | Soft delete (`active = false`) |
+| GET | `/staff/:id/skills` | như GET `/staff/:id` | Danh sách kỹ năng |
+| PUT | `/staff/:id/skills` | ADMIN/MANAGER | Body: `[{ "serviceId": 1, "level": "ADVANCED" }]` |
+| GET | `/staff/:id/shifts?from=&to=` | ADMIN/MANAGER/RECEPTIONIST hoặc chính thợ | Ca làm |
+| POST | `/staff/:id/shifts` | ADMIN/MANAGER | `{ "workDate", "startTime", "endTime" }`; chồng lấn → `409 SHIFT_OVERLAP` |
+| DELETE | `/staff/:id/shifts/:shiftId` | ADMIN/MANAGER | Xoá ca |
+| GET | `/staff/:id/time-off` | ADMIN/MANAGER/RECEPTIONIST hoặc chính thợ | Nghỉ phép |
+| POST | `/staff/:id/time-off` | ADMIN/MANAGER hoặc chính thợ | `{ "startAt", "endAt", "reason"? }` |
+| DELETE | `/staff/:id/time-off/:timeOffId` | ADMIN/MANAGER | Huỷ (status `CANCELLED`) |
+| GET | `/staff/:id/bookings` | ADMIN/MANAGER/RECEPTIONIST hoặc chính thợ | Lịch của thợ |
+| GET | `/staff/me` | NAIL_TECH (mọi role đã đăng nhập có hồ sơ thợ) | Hồ sơ thợ của mình |
+| GET | `/staff/me/bookings` | NAIL_TECH | **Chỉ** lịch của chính mình (S1-07) |
+| GET | `/staff/me/shifts` | NAIL_TECH | Ca của mình |
+| GET/POST | `/staff/me/time-off` | NAIL_TECH | Xem/tự đăng ký nghỉ |
+
+`staff` shape:
+```json
+{
+  "id": 1,
+  "displayName": "Minh",
+  "color": "#E91E63",
+  "active": true,
+  "commissionRate": 0.4,
+  "branchId": 1,
+  "userId": null,                       // UUID tài khoản đăng nhập (optional)
+  "skills": [
+    { "serviceId": 1, "serviceName": "Maniküre", "duration": 45, "price": 28.0, "level": "ADVANCED" }
+  ]
+}
+```
+`level`: `BASIC` | `ADVANCED` | `EXPERT`. `Shift`: `{ id, staffId, workDate, startTime, endTime }`.
+`TimeOff`: `{ id, staffId, startAt, endAt, reason, status }` với `status` = `ACTIVE` | `CANCELLED`.
+
+> Seed sẵn 3 thợ (Minh/Linh/Hoa) có kỹ năng mọi dịch vụ + ca 09:00–18:00 Mon–Sat trong 14 ngày.
+> Chủ nhật nghỉ (D5) → `/availability` trả rỗng.
+
+## 6. Customers (admin)
 
 ### GET `/customers`
 ```json
@@ -208,7 +325,7 @@ Backend trả **song song field tiếng Anh (client view) và tiếng Đức (ad
 }]
 ```
 
-## 5. Stats (admin)
+## 7. Stats (admin)
 
 ### GET `/stats/dashboard`
 ```json
@@ -231,27 +348,50 @@ trend so sánh hôm nay/hôm qua và tháng này/tháng trước.
 
 - `POST /auth/introspect|refresh|logout` — vẫn dùng được.
 - `/users` CRUD (ADMIN) — vẫn dùng được; **GET `/users` đã đổi sang DTO + phân trang**
-  (không còn trả entity/password/roles).
+  (không còn trả entity/password/roles). S1: `POST /users` yêu cầu ADMIN (không còn public).
 - `/booking/**` — **@Deprecated**, chỉ giữ 1 sprint để tương thích Postman.
-  Frontend mới dùng `/bookings/**`. Các endpoint này **không** đi qua policy mới
-  (staff/duration/buffer) và sẽ bị xoá sau Sprint 2.
+  Frontend mới dùng `/bookings/**`. S1 đã đưa các endpoint này qua **cùng luồng**
+  availability/locking nên booking legacy vẫn có `staff_id`, `start_at`, `end_at`,
+  `buffer_end_at` và snapshot giá.
+- `GET /bookings/availability` — **@Deprecated**, dùng `GET /availability`.
 
 ## Chạy thử
 
 ```bash
-docker compose up --build     # Flyway tự migrate; MySQL có healthcheck
+docker compose up --build     # Flyway V1+V2 tự migrate; MySQL có healthcheck
 # hoặc local: ./mvnw spring-boot:run (cần MySQL + biến JWT_SECRET_KEY)
 # login nhanh:
 curl -X POST http://localhost:8080/auth/login -H "Content-Type: application/json" \
   -d '{"emailOrPhone":"admin@gmail.com","password":"<ADMIN_PASSWORD>"}'
+
+# xem slot 2 dịch vụ liên tiếp (60' + 45'):
+curl "http://localhost:8080/availability?date=2026-11-20&serviceIds=2,1"
 ```
 
 ## Test tự động
 
-- `ApiContractSmokeTest` — trọn luồng contract (register → booking → admin → cancel → 401/403).
-- `ErrorContractTest` — envelope lỗi thống nhất + `/v3/api-docs`.
-- `FlywayMigrationTest` — chạy V1 trên DB trống (H2 MODE=MySQL).
-- `BookingConcurrencyTest` — Testcontainers MySQL, 20 thread; test chứng minh lỗi B-03
-  đang `@Disabled` cho tới khi S1-05 sửa khóa staff row.
+- `AvailabilityEngineTest` — **42 unit test** cho engine (buffer, ca gãy, nghỉ phép, skill,
+  timezone, cutoff, grid slot, multi-service, biên thời gian).
+- `AvailabilityApiTest` — 10 test API `/availability` (public, filter thợ, nghỉ phép,
+  booking đã có, Chủ nhật, lỗi tham số).
+- `StaffApiTest` — 10 test CRUD thợ/kỹ năng/ca/nghỉ phép + chặn chồng lấn.
+- `BookingFlowTest` — 7 test luồng đặt lịch S1 (2 dịch vụ liên tiếp 60'+45', snapshot giá,
+  chặn trùng giờ, fail do thiếu skill, auto-assign).
+- `RbacMatrixTest` — 7 test ma trận phân quyền (thợ chỉ thấy lịch mình,
+  RECEPTIONIST chỉ đọc, MANAGER không quản trị user, anonymous rules).
+- `BookingConcurrencyTest` — **Testcontainers MySQL**: 20 thread cùng thợ + cùng slot →
+  đúng 1 thành công / 19 `SLOT_TAKEN`; nhiều thợ → số thành công = số thợ; multi-service
+  giữ đủ `buffer_end`.
+- `ApiContractSmokeTest` / `ErrorContractTest` — contract cũ (register → booking → cancel → 401/403).
+- `FlywayMigrationTest` — chạy V1+V2 trên DB trống (H2 MODE=MySQL), seed branch.
 
-Chạy: `./mvnw verify` (H2 cho test thường; Testcontainers cần Docker, tự skip nếu không có).
+Chạy: `./mvnw verify` (H2 cho test thường; `BookingConcurrencyTest` cần Docker).
+Trên Windows + Docker Desktop, nếu Testcontainers không tìm thấy daemon, thêm vào
+`%USERPROFILE%\.testcontainers.properties`:
+
+```properties
+docker.client.strategy=org.testcontainers.dockerclient.EnvironmentAndSystemPropertyClientProviderStrategy
+docker.host=npipe:////./pipe/dockerDesktopLinuxEngine
+```
+
+hoặc đặt biến môi trường `DOCKER_HOST=npipe:////./pipe/dockerDesktopLinuxEngine`.

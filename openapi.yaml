@@ -13,6 +13,9 @@ info:
     - `X-Request-Id` (header) được echo lại và trùng với `traceId`.
     - `GET /booking/**` là legacy, **deprecated**; dùng `GET/POST /bookings/**`.
     - Tài liệu sinh tự động từ code: `/v3/api-docs`; Swagger UI: `/swagger-ui.html`.
+    - Sprint 1 (2026-11-17): thêm thợ (`/staff/**`), engine availability (`/availability`),
+      multi-service (tối đa 3 dịch vụ liên tiếp) và chọn thợ khi đặt lịch.
+      `GET /bookings/availability` vẫn tồn tại nhưng **deprecated**.
 servers:
   - url: http://localhost:8080
     description: Local / staging
@@ -23,6 +26,8 @@ tags:
   - name: Users
   - name: Services
   - name: Bookings
+  - name: Availability
+  - name: Staff
   - name: Admin
   - name: Legacy
 
@@ -405,6 +410,512 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /availability:
+    get:
+      tags: [Availability]
+      summary: Slot trống theo dịch vụ và thợ (public, S1)
+      description: |
+        Engine availability v2: lọc theo ca làm, nghỉ phép, kỹ năng của thợ và các
+        booking chưa terminal; trả slot theo từng thợ và union `anyAvailable`.
+
+        - `serviceIds` nhận cả `serviceIds=1,2` và `serviceIds=1&serviceIds=2`; tối đa 3.
+        - `staffId` null = mọi thợ đủ điều kiện.
+        - `end` = `start + Σduration` của các dịch vụ (không gồm buffer cuối).
+      security: []
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          example: '2026-11-20'
+        - name: serviceIds
+          in: query
+          required: false
+          description: 1–3 id dịch vụ (hoặc dùng `serviceId` cho client cũ)
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 3
+            items: { type: integer, format: int64 }
+        - name: serviceId
+          in: query
+          required: false
+          description: Alias một dịch vụ duy nhất (legacy)
+          schema: { type: integer, format: int64 }
+        - name: staffId
+          in: query
+          required: false
+          description: Lọc theo một thợ; bỏ trống = mọi thợ rảnh
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/AvailabilityResult' }
+        '400':
+          description: Thiếu tham số, ngày sai định dạng hoặc quá 3 dịch vụ
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /staff:
+    get:
+      tags: [Staff]
+      summary: Danh sách thợ (ADMIN/MANAGER/RECEPTIONIST)
+      parameters:
+        - name: includeInactive
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Staff' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Staff]
+      summary: Tạo thợ (ADMIN/MANAGER)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StaffRequest' }
+      responses:
+        '200':
+          description: Đã tạo (envelope `code` = 201)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Staff' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /staff/me:
+    get:
+      tags: [Staff]
+      summary: Hồ sơ thợ của tài khoản đang đăng nhập (NAIL_TECH)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Staff' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Tài khoản chưa được gắn với hồ sơ thợ
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /staff/me/bookings:
+    get:
+      tags: [Staff]
+      summary: Lịch của chính thợ (S1-07 — thợ chỉ thấy lịch mình)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Booking' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /staff/me/shifts:
+    get:
+      tags: [Staff]
+      summary: Ca làm của chính thợ
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Shift' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /staff/me/time-off:
+    get:
+      tags: [Staff]
+      summary: Nghỉ phép của chính thợ
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/TimeOff' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Staff]
+      summary: Thợ tự đăng ký nghỉ phép
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TimeOffRequest' }
+      responses:
+        '200':
+          description: Đã tạo (envelope `code` = 201)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/TimeOff' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /staff/{id}:
+    parameters:
+      - $ref: '#/components/parameters/StaffId'
+    get:
+      tags: [Staff]
+      summary: Chi tiết thợ
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Staff' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Staff]
+      summary: Cập nhật thợ (ADMIN/MANAGER); `skills != null` thay toàn bộ kỹ năng
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StaffRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Staff' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Staff]
+      summary: Ngừng hoạt động thợ (soft delete, ADMIN/MANAGER)
+      responses:
+        '200':
+          description: Đã ngừng hoạt động
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiEnvelope' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /staff/{id}/skills:
+    parameters:
+      - $ref: '#/components/parameters/StaffId'
+    get:
+      tags: [Staff]
+      summary: Kỹ năng của thợ
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/StaffSkill' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Staff]
+      summary: Thay toàn bộ danh sách kỹ năng (ADMIN/MANAGER)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items: { $ref: '#/components/schemas/SkillRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/StaffSkill' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /staff/{id}/shifts:
+    parameters:
+      - $ref: '#/components/parameters/StaffId'
+    get:
+      tags: [Staff]
+      summary: Ca làm của thợ trong khoảng ngày
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Shift' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Staff]
+      summary: Thêm ca làm (ADMIN/MANAGER), chặn ca chồng lấn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShiftRequest' }
+      responses:
+        '200':
+          description: Đã tạo (envelope `code` = 201)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Shift' }
+        '400':
+          description: Thiếu field hoặc `startTime >= endTime` (`INVALID_TIME_RANGE`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Ca chồng lấn (`SHIFT_OVERLAP`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /staff/{id}/shifts/{shiftId}:
+    parameters:
+      - $ref: '#/components/parameters/StaffId'
+      - name: shiftId
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    delete:
+      tags: [Staff]
+      summary: Xoá ca làm (ADMIN/MANAGER)
+      responses:
+        '200':
+          description: Đã xoá
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiEnvelope' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /staff/{id}/time-off:
+    parameters:
+      - $ref: '#/components/parameters/StaffId'
+    get:
+      tags: [Staff]
+      summary: Danh sách nghỉ phép của thợ
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/TimeOff' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Staff]
+      summary: Đăng ký nghỉ phép (ADMIN/MANAGER hoặc chính thợ)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TimeOffRequest' }
+      responses:
+        '200':
+          description: Đã tạo (envelope `code` = 201)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/TimeOff' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Trùng nghỉ phép (`TIME_OFF_OVERLAP`) hoặc vướng booking (`TIME_OFF_CONFLICTS_BOOKING`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /staff/{id}/time-off/{timeOffId}:
+    parameters:
+      - $ref: '#/components/parameters/StaffId'
+      - name: timeOffId
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    delete:
+      tags: [Staff]
+      summary: Huỷ nghỉ phép (soft — status CANCELLED, ADMIN/MANAGER)
+      responses:
+        '200':
+          description: Đã huỷ
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiEnvelope' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /staff/{id}/bookings:
+    parameters:
+      - $ref: '#/components/parameters/StaffId'
+    get:
+      tags: [Staff]
+      summary: Lịch của một thợ (ADMIN/MANAGER/RECEPTIONIST hoặc chính thợ)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Booking' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /bookings:
     get:
       tags: [Bookings]
@@ -429,6 +940,13 @@ paths:
     post:
       tags: [Bookings]
       summary: Tạo booking (guest hoặc user đăng nhập)
+      description: |
+        S1: nhận 1–3 dịch vụ (`serviceIds`) hoặc 1 dịch vụ (`serviceId` legacy),
+        có thể chọn thợ (`staffId`) hoặc để hệ thống tự chọn thợ ít việc nhất.
+
+        Server giữ khóa staff row + kiểm tra overlap trong transaction
+        `READ_COMMITTED`, nên hai request đồng thời trên cùng slot chỉ một request
+        thành công (request còn lại nhận 409 `SLOT_TAKEN`).
       security: []
       requestBody:
         required: true
@@ -447,17 +965,27 @@ paths:
                     properties:
                       data: { $ref: '#/components/schemas/Booking' }
         '400':
-          $ref: '#/components/responses/BadRequest'
+          description: Validation, ngoài giờ mở cửa (`OUTSIDE_OPENING_HOURS`) hoặc quá 3 dịch vụ (`TOO_MANY_SERVICES`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: Không tìm thấy dịch vụ hoặc thợ
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
         '409':
-          description: Slot đã đủ 10 chỗ
+          description: Slot đã bị chiếm (`SLOT_TAKEN`) hoặc không thợ nào đủ điều kiện (`NO_STAFF_AVAILABLE`)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /bookings/availability:
     get:
-      tags: [Bookings]
-      summary: Các slot còn trống trong ngày (public)
+      tags: [Legacy]
+      deprecated: true
+      summary: '[DEPRECATED] Slot trống trong ngày — dùng GET /availability'
+      description: Giữ để tương thích Sprint 0; trả danh sách giờ bắt đầu của mọi thợ.
       security: []
       parameters:
         - name: date
@@ -688,6 +1216,11 @@ components:
       in: path
       required: true
       schema: { type: integer, format: int64 }
+    StaffId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
 
   responses:
     BadRequest:
@@ -775,7 +1308,9 @@ components:
         name: { type: string, example: Anna Müller }
         email: { type: string, format: email }
         phone: { type: string, example: '+4915112345678' }
-        role: { type: string, enum: [client, admin] }
+        role:
+          type: string
+          enum: [USER, NAIL_TECH, RECEPTIONIST, MANAGER, ADMIN]
         birthday: { type: string, format: date }
         address: { type: string }
         gender: { type: string, enum: [MALE, FEMALE, OTHER] }
@@ -868,13 +1403,16 @@ components:
       type: object
       properties:
         id: { type: integer, format: int64 }
-        serviceId: { type: integer, format: int64 }
-        service: { type: string, example: Maniküre }
-        dienstleistung: { type: string, example: Maniküre }
-        date: { type: string, format: date }
-        datum: { type: string }
+        serviceId: { type: integer, format: int64, description: 'Dịch vụ đầu tiên (giữ tương thích client cũ)' }
+        service: { type: string, example: 'Pediküre + Maniküre', description: 'Tên các dịch vụ nối bằng " + "' }
+        dienstleistung: { type: string, example: 'Pediküre + Maniküre' }
+        date: { type: string, format: date, example: '20.11.2026' }
+        datum: { type: string, example: '20.11.2026' }
         time: { type: string, example: '14:30' }
         uhrzeit: { type: string, example: '14:30' }
+        endDate: { type: string, example: '20.11.2026', description: 'Ngày kết thúc dịch vụ (không gồm buffer)' }
+        endTime: { type: string, example: '16:15' }
+        endUhrzeit: { type: string, example: '16:15' }
         name: { type: string }
         kunde: { type: string }
         phone: { type: string }
@@ -882,16 +1420,59 @@ components:
         note: { type: string }
         employee: { type: string }
         mitarbeiter: { type: string }
+        staffId: { type: integer, format: int64 }
+        staffName: { type: string, example: Minh }
         status:
           type: string
           enum: [bestätigt, 'in Bearbeitung', abgeschlossen, storniert]
-        price: { type: string, description: 'Chuỗi đã format EUR, ví dụ "35 €"' }
+        price: { type: string, description: 'Chuỗi đã format EUR, ví dụ "63 €"' }
+        priceSnapshot:
+          type: number
+          format: double
+          description: 'Tổng giá tại thời điểm đặt (EUR), không đổi khi bảng giá cập nhật'
+        currency: { type: string, example: EUR }
+        totalDurationMinutes:
+          type: integer
+          description: 'Σ duration của các dịch vụ (không gồm buffer), ví dụ 105'
+        items:
+          type: array
+          description: 'Chi tiết từng dịch vụ — chỉ trả ở POST /bookings và các endpoint chi tiết'
+          items: { $ref: '#/components/schemas/BookingItem' }
+
+    BookingItem:
+      type: object
+      properties:
+        serviceId: { type: integer, format: int64 }
+        name: { type: string, example: Pediküre }
+        startTime: { type: string, example: '14:30' }
+        endTime: { type: string, example: '15:30' }
+        duration: { type: integer, example: 60 }
+        price: { type: number, format: double, example: 35.0 }
+        currency: { type: string, example: EUR }
+        staffId: { type: integer, format: int64 }
+        staffName: { type: string, example: Minh }
 
     CreateBookingRequest:
       type: object
-      required: [serviceId, date, time, name, phone, email]
+      required: [date, time, name, phone, email]
+      description: |
+        Gửi `serviceIds` (1–3, ưu tiên) hoặc `serviceId` (legacy). Phải có ít nhất một.
+        Các dịch vụ được thực hiện **liên tiếp** bởi cùng một thợ; buffer 10' chỉ
+        cộng ở cuối toàn bộ appointment.
       properties:
-        serviceId: { type: integer, format: int64 }
+        serviceId:
+          type: integer
+          format: int64
+          description: 'Legacy — một dịch vụ duy nhất'
+        serviceIds:
+          type: array
+          maxItems: 3
+          items: { type: integer, format: int64 }
+          example: [2, 1]
+        staffId:
+          type: integer
+          format: int64
+          description: 'Thợ mong muốn; bỏ trống = tự chọn thợ ít việc nhất'
         date: { type: string, format: date, example: '2026-11-20' }
         time: { type: string, example: '14:30', description: 'HH:mm, bước 30 phút, 09:00–18:00' }
         name: { type: string }
@@ -908,8 +1489,121 @@ components:
           enum: [bestätigt, 'in Bearbeitung', abgeschlossen, storniert]
         employee: { type: string }
 
+    AvailabilityResult:
+      type: object
+      description: Response của `GET /availability` (S1)
+      properties:
+        date: { type: string, format: date, example: '2026-11-20' }
+        timezone: { type: string, example: Europe/Berlin }
+        slotStepMinutes: { type: integer, example: 30 }
+        totalDurationMinutes: { type: integer, example: 105 }
+        staff:
+          type: array
+          items: { $ref: '#/components/schemas/StaffSlots' }
+        anyAvailable:
+          type: array
+          description: Union giờ bắt đầu của mọi thợ, đã sắp xếp
+          items: { type: string, example: '09:00' }
+
+    StaffSlots:
+      type: object
+      properties:
+        staffId: { type: integer, format: int64 }
+        name: { type: string, example: Minh }
+        slots:
+          type: array
+          items: { $ref: '#/components/schemas/Slot' }
+
+    Slot:
+      type: object
+      properties:
+        start: { type: string, example: '09:00' }
+        end: { type: string, example: '10:45', description: 'start + Σduration (không gồm buffer)' }
+
+    Staff:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        displayName: { type: string, example: Minh }
+        color: { type: string, example: '#E91E63' }
+        active: { type: boolean }
+        commissionRate: { type: number, format: double, example: 0.4 }
+        branchId: { type: integer, format: int64 }
+        userId: { type: string, format: uuid, description: 'Tài khoản gắn với thợ (optional)' }
+        skills:
+          type: array
+          items: { $ref: '#/components/schemas/StaffSkill' }
+
+    StaffSkill:
+      type: object
+      properties:
+        serviceId: { type: integer, format: int64 }
+        serviceName: { type: string, example: Maniküre }
+        duration: { type: integer, example: 45 }
+        price: { type: number, format: double, example: 28.0 }
+        level: { type: string, enum: [BASIC, ADVANCED, EXPERT] }
+
+    StaffRequest:
+      type: object
+      required: [displayName]
+      properties:
+        displayName: { type: string }
+        userId: { type: string, format: uuid }
+        branchId: { type: integer, format: int64 }
+        color: { type: string }
+        active: { type: boolean }
+        commissionRate: { type: number, minimum: 0, maximum: 1 }
+        skills:
+          type: array
+          description: 'PUT: null = giữ nguyên, [] = xoá hết'
+          items: { $ref: '#/components/schemas/SkillRequest' }
+
+    SkillRequest:
+      type: object
+      required: [serviceId]
+      properties:
+        serviceId: { type: integer, format: int64 }
+        level: { type: string, enum: [BASIC, ADVANCED, EXPERT], default: BASIC }
+
+    Shift:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        staffId: { type: integer, format: int64 }
+        workDate: { type: string, format: date }
+        startTime: { type: string, example: '09:00' }
+        endTime: { type: string, example: '18:00' }
+
+    ShiftRequest:
+      type: object
+      required: [workDate, startTime, endTime]
+      properties:
+        workDate: { type: string, format: date }
+        startTime: { type: string, example: '09:00' }
+        endTime: { type: string, example: '18:00' }
+
+    TimeOff:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        staffId: { type: integer, format: int64 }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        reason: { type: string }
+        status: { type: string, enum: [ACTIVE, CANCELLED] }
+
+    TimeOffRequest:
+      type: object
+      required: [startAt, endAt]
+      properties:
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        reason: { type: string, maxLength: 255 }
+
     AvailabilityResponse:
       type: object
+      deprecated: true
+      description: Response legacy của `GET /bookings/availability`
       properties:
         slots:
           type: array

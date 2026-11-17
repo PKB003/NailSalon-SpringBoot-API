@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ttnails.booking_service.bookings.entity.Booking;
 import com.ttnails.booking_service.bookings.repository.BookingRepository;
+import com.ttnails.booking_service.support.TestSupport;
 import com.ttnails.booking_service.users.entity.User;
 import com.ttnails.booking_service.users.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -59,8 +60,9 @@ class ApiContractSmokeTest {
     }
 
     /**
-     * Slot hợp lệ kế tiếp trong giờ mở cửa (09:00–18:00, bước 30') — luôn ở tương lai
-     * và cách hiện tại ít hơn 24h (dùng để test chính sách hủy CANCEL_TOO_LATE).
+     * Slot hợp lệ kế tiếp trong giờ mở cửa (09:00–18:00, bước 30') — luôn ở tương lai,
+     * cách hiện tại ít hơn 24h (dùng để test chính sách hủy CANCEL_TOO_LATE).
+     * Bỏ Chủ nhật vì tiệm nghỉ (không có ca làm).
      */
     private LocalDateTime nextValidOpenSlot() {
         LocalDateTime candidate = LocalDateTime.now().plusHours(3).withSecond(0).withNano(0);
@@ -73,6 +75,9 @@ class ApiContractSmokeTest {
         if (candidate.toLocalTime().isBefore(open)) {
             candidate = candidate.withHour(9).withMinute(0);
         } else if (!candidate.toLocalTime().isBefore(close)) {
+            candidate = candidate.plusDays(1).withHour(9).withMinute(0);
+        }
+        while (candidate.getDayOfWeek() == java.time.DayOfWeek.SUNDAY) {
             candidate = candidate.plusDays(1).withHour(9).withMinute(0);
         }
         return candidate;
@@ -121,16 +126,25 @@ class ApiContractSmokeTest {
         // login lại bằng emailOrPhone với password mới
         String userToken2 = loginAndGetToken("anna@test.de", "geheim456");
 
-        // 5. GET /bookings/availability → { slots: ["09:00", ...] }
-        String tomorrow = LocalDate.now().plusDays(1).toString();
+        // 5. GET /bookings/availability → { slots: ["09:00", ...] } (legacy, deprecated)
+        String tomorrow = TestSupport.workdayAfter(1).toString();
         mockMvc.perform(get("/bookings/availability").param("date", tomorrow))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.slots").isArray())
                 .andExpect(jsonPath("$.data.slots[0]").value("09:00"));
 
+        // 5b. GET /availability (S1) → slot theo thợ + multi-service
+        mockMvc.perform(get("/availability")
+                        .param("date", tomorrow)
+                        .param("serviceIds", String.valueOf(serviceId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.timezone").value("Europe/Berlin"))
+                .andExpect(jsonPath("$.data.anyAvailable[0]").value("09:00"))
+                .andExpect(jsonPath("$.data.staff[0].slots[0].start").exists());
+
         // 6. POST /bookings → booking với id làm mã xác nhận, status "in Bearbeitung"
         // Dùng ngày +2 (>= 24h) để bước 10 test hủy miễn phí không phụ thuộc giờ chạy test.
-        String cancellableDate = LocalDate.now().plusDays(2).toString();
+        String cancellableDate = TestSupport.workdayAfter(2).toString();
         String bookingBody = "{\"serviceId\":" + serviceId + ",\"date\":\"" + cancellableDate + "\"," +
                 "\"time\":\"14:30\",\"name\":\"Anna Müller\",\"phone\":\"0176 12345678\"," +
                 "\"email\":\"anna@test.de\",\"note\":\"Design wünsche\"}";
@@ -142,6 +156,11 @@ class ApiContractSmokeTest {
                 .andExpect(jsonPath("$.data.status").value("in Bearbeitung"))
                 .andExpect(jsonPath("$.data.time").value("14:30"))
                 .andExpect(jsonPath("$.data.uhrzeit").value("14:30"))
+                .andExpect(jsonPath("$.data.staffId").isNumber())
+                .andExpect(jsonPath("$.data.staffName").isNotEmpty())
+                .andExpect(jsonPath("$.data.endTime").isNotEmpty())
+                .andExpect(jsonPath("$.data.currency").value("EUR"))
+                .andExpect(jsonPath("$.data.priceSnapshot").isNumber())
                 .andReturn();
         long bookingId = getBody(bookingResult).get("data").get("id").asLong();
 
@@ -298,6 +317,7 @@ class ApiContractSmokeTest {
                         .content("{\"serviceId\":" + serviceId + ",\"date\":\"" + tomorrow + "\",\"time\":\"03:00\","
                                 + "\"name\":\"Anna Müller\",\"phone\":\"0176 12345678\",\"email\":\"anna@test.de\"}"))
                 .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("OUTSIDE_OPENING_HOURS"))
                 .andExpect(jsonPath("$.message").value("Termin muss zwischen 09:00 und 18:00 liegen"));
     }
 }
