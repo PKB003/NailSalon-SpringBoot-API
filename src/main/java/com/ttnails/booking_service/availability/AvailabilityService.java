@@ -60,8 +60,7 @@ import java.util.stream.Collectors;
 public class AvailabilityService {
 
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
-    private static final List<String> TERMINAL_STATUSES =
-            List.of(BookingStatus.CANCELLED, BookingStatus.COMPLETED);
+    private static final List<String> TERMINAL_STATUSES = BookingStatus.TERMINAL_LIST;
 
     private final AvailabilityEngine engine = new AvailabilityEngine();
 
@@ -136,6 +135,16 @@ public class AvailabilityService {
     /** Dùng nội bộ cho BookingService (đã resolve entity service). */
     @Transactional(readOnly = true)
     public DayAvailability computeDayForServices(LocalDate date, List<Service> services, Long requestedStaffId) {
+        return computeDayForServices(date, services, requestedStaffId, null);
+    }
+
+    /**
+     * Như trên, nhưng bỏ qua 1 booking khi tính busy (S2-02: đổi lịch — booking hiện tại
+     * không được tự chặn slot của chính nó).
+     */
+    @Transactional(readOnly = true)
+    public DayAvailability computeDayForServices(LocalDate date, List<Service> services,
+                                                 Long requestedStaffId, Long excludeBookingId) {
         if (services == null || services.isEmpty()) {
             throw new AppException(ErrorCode.INVALID_REQUEST);
         }
@@ -169,7 +178,8 @@ public class AvailabilityService {
                 .stream().collect(Collectors.groupingBy(t -> t.getStaff().getId()));
 
         List<Booking> blocking = bookingRepository.findBlockingForStaff(
-                staffIds, dayStart, dayEnd, TERMINAL_STATUSES);
+                staffIds, dayStart, dayEnd, TERMINAL_STATUSES,
+                excludeBookingId != null ? excludeBookingId : -1L);
         Map<Long, List<Booking>> bookingsByStaff = blocking.stream()
                 .collect(Collectors.groupingBy(b -> b.getStaff().getId()));
 

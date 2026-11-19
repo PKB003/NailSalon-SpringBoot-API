@@ -10,4 +10,7 @@ public class BookingStatusRequest {
 
     /** optional: gán/thay đổi nhân viên phụ trách */
     private String employee;
+
+    /** S2-01: lý do đổi trạng thái (bắt buộc với một số transition của admin). */
+    private String reason;
 }

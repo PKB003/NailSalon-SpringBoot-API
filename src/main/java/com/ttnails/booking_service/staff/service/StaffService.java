@@ -136,6 +136,7 @@ public class StaffService {
 
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     @Transactional
+    @com.ttnails.booking_service.audit.Audited(action = "STAFF_CREATE", entityType = "STAFF")
     public StaffDTO create(StaffRequest request) {
         Branch branch = resolveBranch(request.getBranchId());
         User user = resolveUser(request.getUserId(), null);
@@ -156,6 +157,7 @@ public class StaffService {
 
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     @Transactional
+    @com.ttnails.booking_service.audit.Audited(action = "STAFF_UPDATE", entityType = "STAFF")
     public StaffDTO update(Long id, StaffRequest request) {
         Staff staff = requireStaff(id);
 
@@ -181,6 +183,7 @@ public class StaffService {
     /** Soft delete: giữ lịch sử booking/commission, chỉ tắt nhận khách. */
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
     @Transactional
+    @com.ttnails.booking_service.audit.Audited(action = "STAFF_DEACTIVATE", entityType = "STAFF")
     public void deactivate(Long id) {
         Staff staff = requireStaff(id);
         staff.setActive(false);

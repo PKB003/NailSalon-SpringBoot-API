@@ -43,4 +43,10 @@ public class NewBookingRequest {
     private String email;
 
     private String note;
+
+    /**
+     * S2-05: cho phép đặt lịch dù vượt ngưỡng no-show. Chỉ có hiệu lực với
+     * staff (ADMIN/MANAGER/RECEPTIONIST); guest gửi cờ này sẽ bị bỏ qua.
+     */
+    private boolean overrideNoShow;
 }

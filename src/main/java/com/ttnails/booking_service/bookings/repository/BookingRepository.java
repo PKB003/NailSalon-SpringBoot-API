@@ -2,8 +2,12 @@ package com.ttnails.booking_service.bookings.repository;
 
 import com.ttnails.booking_service.bookings.entity.Booking;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -11,9 +15,24 @@ import org.springframework.data.repository.query.Param;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
-public interface BookingRepository extends JpaRepository<Booking,Long> {
+public interface BookingRepository extends JpaRepository<Booking, Long>, JpaSpecificationExecutor<Booking> {
+
+    /** S2-09: danh sách admin có filter + phân trang (staff được fetch để mapper không N+1). */
+    @Override
+    @EntityGraph(attributePaths = {"staff"})
+    Page<Booking> findAll(Specification<Booking> spec, Pageable pageable);
+
+    Optional<Booking> findByConfirmationCodeIgnoreCase(String confirmationCode);
+
+    @EntityGraph(attributePaths = {"staff"})
+    List<Booking> findByPhoneOrderByStartAtDesc(String phone);
+
+    long countByPhoneAndStatusAndStartAtGreaterThanEqual(String phone, String status, LocalDateTime from);
+
+    long countByUserIdAndStatusAndStartAtGreaterThanEqual(UUID userId, String status, LocalDateTime from);
 
     @EntityGraph(attributePaths = {"staff"})
     List<Booking> findByUserId(UUID id);
@@ -42,6 +61,7 @@ public interface BookingRepository extends JpaRepository<Booking,Long> {
     @Query("""
             SELECT b FROM Booking b
             WHERE b.staff.id IN :staffIds
+              AND b.id <> :excludeBookingId
               AND b.startAt IS NOT NULL
               AND b.bufferEndAt IS NOT NULL
               AND b.status NOT IN :terminalStatuses
@@ -51,7 +71,8 @@ public interface BookingRepository extends JpaRepository<Booking,Long> {
     List<Booking> findBlockingForStaff(@Param("staffIds") Collection<Long> staffIds,
                                        @Param("rangeStart") LocalDateTime rangeStart,
                                        @Param("rangeEnd") LocalDateTime rangeEnd,
-                                       @Param("terminalStatuses") Collection<String> terminalStatuses);
+                                       @Param("terminalStatuses") Collection<String> terminalStatuses,
+                                       @Param("excludeBookingId") Long excludeBookingId);
 
     /**
      * Kiểm tra overlap sau khi đã khóa staff row (S1-05).

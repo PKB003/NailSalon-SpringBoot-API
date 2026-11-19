@@ -65,6 +65,12 @@ public class Booking {
     @Column(length = 3)
     private String currency;
 
+    // ==================== Sprint 2: booking v2 ====================
+
+    /** Mã xác nhận cho khách tra cứu (S2-08), ví dụ {@code TT-7K3M9Q}. Unique. */
+    @Column(name = "confirmation_code", length = 16, unique = true)
+    private String confirmationCode;
+
     public Booking() {
     }
 

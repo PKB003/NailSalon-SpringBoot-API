@@ -66,8 +66,9 @@ public class BookingMapper {
         response.setStaffName(staffName);
         response.setStaffId(booking.getStaff() != null ? booking.getStaff().getId() : null);
 
-        response.setStatus(booking.getStatus() != null ? booking.getStatus() : BookingStatus.IN_PROGRESS);
+        response.setStatus(booking.getStatus() != null ? booking.getStatus() : BookingStatus.CONFIRMED);
         response.setCurrency(booking.getCurrency() != null ? booking.getCurrency() : "EUR");
+        response.setConfirmationCode(booking.getConfirmationCode());
 
         BigDecimal price = booking.getPriceSnapshot();
         if (price == null) {

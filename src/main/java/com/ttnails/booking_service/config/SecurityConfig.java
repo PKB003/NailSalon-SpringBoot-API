@@ -37,7 +37,8 @@ public class SecurityConfig {
 
     /** Endpoint cho phép POST không cần token (đăng ký / đăng nhập / đặt lịch guest) */
     private final String[] PUBLIC_POST_ENDPOINTS = {
-            "/auth/login", "/auth/register", "/booking/guest", "/bookings"
+            "/auth/login", "/auth/register", "/booking/guest", "/bookings",
+            "/bookings/lookup", "/bookings/lookup/verify", "/waitlist"
     };
 
     /** Endpoint cho phép GET không cần token (trang Booking có thể xem trước khi đăng nhập) */
@@ -45,6 +46,11 @@ public class SecurityConfig {
             "/services", "/availability", "/bookings/availability",
             "/actuator/health", "/actuator/health/**",
             "/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**"
+    };
+
+    /** Endpoint cho phép DELETE không cần token (khách huỷ waitlist bằng SĐT). */
+    private final String[] PUBLIC_DELETE_ENDPOINTS = {
+            "/waitlist/**"
     };
 
     @Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:5173}")
@@ -68,6 +74,7 @@ public class SecurityConfig {
                         .requestMatchers("/error").permitAll()
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
+                        .requestMatchers(HttpMethod.DELETE, PUBLIC_DELETE_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/users").hasRole("ADMIN") // ROLE_ADMIN
                         .requestMatchers("/staff/me", "/staff/me/**").authenticated()
                         .anyRequest().authenticated()

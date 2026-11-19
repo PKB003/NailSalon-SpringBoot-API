@@ -919,10 +919,45 @@ paths:
   /bookings:
     get:
       tags: [Bookings]
-      summary: Toàn bộ booking (ADMIN)
+      summary: Danh sách booking (ADMIN/MANAGER/RECEPTIONIST) — array hoặc phân trang
+      description: |
+        Không truyền `page` → trả **array** như S1 (tương thích frontend cũ).
+        Có `page` → trả `PageResponse` (S2-09).
+      parameters:
+        - name: status
+          in: query
+          description: Trạng thái tiếng Đức (vd. `bestätigt`)
+          schema: { type: string }
+        - name: staffId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: serviceId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: q
+          in: query
+          description: Tìm theo tên / SĐT / email
+          schema: { type: string }
+        - name: page
+          in: query
+          description: Bỏ trống = trả array (legacy)
+          schema: { type: integer, minimum: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: sort
+          in: query
+          description: '`field,asc|desc`; field ∈ preferredDateTime|startAt|status|id'
+          schema: { type: string, example: 'startAt,asc' }
       responses:
         '200':
-          description: OK
+          description: Array (không page) hoặc PageResponse (có page)
           content:
             application/json:
               schema:
@@ -931,8 +966,16 @@ paths:
                   - type: object
                     properties:
                       data:
-                        type: array
-                        items: { $ref: '#/components/schemas/Booking' }
+                        oneOf:
+                          - type: array
+                            items: { $ref: '#/components/schemas/Booking' }
+                          - allOf:
+                              - $ref: '#/components/schemas/PageMeta'
+                              - type: object
+                                properties:
+                                  content:
+                                    type: array
+                                    items: { $ref: '#/components/schemas/Booking' }
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -944,10 +987,21 @@ paths:
         S1: nhận 1–3 dịch vụ (`serviceIds`) hoặc 1 dịch vụ (`serviceId` legacy),
         có thể chọn thợ (`staffId`) hoặc để hệ thống tự chọn thợ ít việc nhất.
 
+        S2: booking mới ở trạng thái `bestätigt` + có `confirmationCode`.
+        Gửi `Idempotency-Key` để retry không tạo booking trùng (S2-07).
+        Khách vượt ngưỡng no-show → `409 NO_SHOW_BLOCKED` (staff override bằng
+        `overrideNoShow`).
+
         Server giữ khóa staff row + kiểm tra overlap trong transaction
         `READ_COMMITTED`, nên hai request đồng thời trên cùng slot chỉ một request
         thành công (request còn lại nhận 409 `SLOT_TAKEN`).
       security: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: 'Khóa idempotent cho retry (tối đa 190 ký tự)'
+          schema: { type: string, maxLength: 190 }
       requestBody:
         required: true
         content:
@@ -975,7 +1029,9 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
         '409':
-          description: Slot đã bị chiếm (`SLOT_TAKEN`) hoặc không thợ nào đủ điều kiện (`NO_STAFF_AVAILABLE`)
+          description: |
+            `SLOT_TAKEN` / `NO_STAFF_AVAILABLE` / `NO_SHOW_BLOCKED` /
+            `IDEMPOTENCY_KEY_REUSED` / `IDEMPOTENCY_IN_PROGRESS`
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -1032,7 +1088,16 @@ paths:
       - $ref: '#/components/parameters/BookingId'
     patch:
       tags: [Bookings]
-      summary: Huỷ booking (chủ booking hoặc ADMIN)
+      summary: Huỷ booking (chủ booking hoặc ADMIN/MANAGER/RECEPTIONIST)
+      description: |
+        Chính sách 24h (D4): khách huỷ trong vòng 24h vẫn được (mặc định `WARN`),
+        response có `cancellation.late = true`. Có thể bật `FEE`/`BLOCK` qua
+        `cancellation_policy` hoặc `LATE_CANCEL_ACTION`.
+      parameters:
+        - name: reason
+          in: query
+          required: false
+          schema: { type: string, maxLength: 500 }
       responses:
         '200':
           description: Đã huỷ
@@ -1045,14 +1110,327 @@ paths:
                     properties:
                       data: { $ref: '#/components/schemas/Booking' }
         '400':
-          description: Quá sát giờ (<24h) hoặc lịch đã qua
+          description: Lịch đã qua (`APPOINTMENT_PASSED`) hoặc thiếu lý do (`REASON_REQUIRED`)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          $ref: '#/components/responses/Conflict'
+          description: '`BOOKING_ALREADY_CANCELLED` / `BOOKING_TERMINAL` / `LATE_CANCEL_BLOCKED`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /bookings/{id}/reschedule:
+    parameters:
+      - $ref: '#/components/parameters/BookingId'
+    patch:
+      tags: [Bookings]
+      summary: Đổi lịch booking (S2-02)
+      description: |
+        Khách chỉ đổi được khi còn ≥ `FREE_CANCEL_HOURS` (mặc định 24h).
+        Staff được override nhưng bắt buộc gửi `reason`. Mỗi lần đổi lưu
+        `booking_version` và tăng `versionNo`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RescheduleRequest' }
+      responses:
+        '200':
+          description: Đã đổi lịch
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Booking' }
+        '400':
+          description: '`RESCHEDULE_TOO_LATE` / `REASON_REQUIRED` / lỗi validation'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: '`SLOT_TAKEN` / `BOOKING_TERMINAL` / `INVALID_STATUS_TRANSITION`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /bookings/{id}/no-show:
+    parameters:
+      - $ref: '#/components/parameters/BookingId'
+    patch:
+      tags: [Bookings]
+      summary: Đánh dấu khách không đến (S2-05)
+      description: |
+        Mặc định chỉ đánh dấu được sau giờ hẹn. Staff có thể `override: true`
+        trước giờ nhưng phải kèm `reason`. Đánh dấu lại là idempotent.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NoShowRequest' }
+      responses:
+        '200':
+          description: Đã đánh dấu `nicht erschienen`
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Booking' }
+        '400':
+          description: Thiếu lý do (`REASON_REQUIRED`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: '`NO_SHOW_TOO_EARLY` / `BOOKING_TERMINAL` / `INVALID_STATUS_TRANSITION`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /bookings/{id}/history:
+    parameters:
+      - $ref: '#/components/parameters/BookingId'
+    get:
+      tags: [Bookings]
+      summary: Lịch sử trạng thái booking (S2-01)
+      description: Chủ booking hoặc ADMIN/MANAGER/RECEPTIONIST.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/BookingStatusHistory' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /bookings/lookup:
+    post:
+      tags: [Bookings]
+      summary: Bước 1 tra cứu guest — confirmation code + SĐT (S2-08)
+      description: |
+        Tạo OTP gửi qua SMS. Sai code hoặc SĐT đều trả cùng
+        `INVALID_CONFIRMATION_CODE`. Rate limit theo SĐT → `429 TOO_MANY_REQUESTS`.
+        OTP chỉ trả trong response khi `GUEST_LOOKUP_EXPOSE_OTP=true` (dev/test).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GuestLookupRequest' }
+      responses:
+        '200':
+          description: Đã gửi OTP (nếu thông tin khớp)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/GuestLookupChallenge' }
+        '400':
+          description: '`INVALID_CONFIRMATION_CODE`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429':
+          description: '`TOO_MANY_REQUESTS`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /bookings/lookup/verify:
+    post:
+      tags: [Bookings]
+      summary: Bước 2 tra cứu guest — xác thực OTP (S2-08)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GuestLookupVerifyRequest' }
+      responses:
+        '200':
+          description: Trả booking sau khi xác thực
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/GuestLookupResult' }
+        '400':
+          description: '`INVALID_OTP` / `OTP_EXPIRED` / `INVALID_CONFIRMATION_CODE`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: '`OTP_TOO_MANY_ATTEMPTS`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /waitlist:
+    post:
+      tags: [Waitlist]
+      summary: Đăng ký chờ slot (public)
+      description: |
+        Mỗi `SĐT + dịch vụ + ngày` chỉ có một entry ACTIVE → trùng trả
+        `409 WAITLIST_DUPLICATE`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WaitlistRequest' }
+      responses:
+        '201':
+          description: Đã đăng ký
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/WaitlistEntry' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: '`WAITLIST_DUPLICATE`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    get:
+      tags: [Waitlist]
+      summary: Danh sách waitlist (ADMIN/MANAGER/RECEPTIONIST)
+      parameters:
+        - name: date
+          in: query
+          schema: { type: string, format: date }
+        - name: serviceId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: status
+          in: query
+          schema: { type: string, enum: [ACTIVE, NOTIFIED, CANCELLED, EXPIRED] }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageMeta'
+                          - type: object
+                            properties:
+                              content:
+                                type: array
+                                items: { $ref: '#/components/schemas/WaitlistEntry' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /waitlist/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    delete:
+      tags: [Waitlist]
+      summary: Huỷ đăng ký waitlist (khách nhập đúng SĐT, hoặc staff)
+      security: []
+      parameters:
+        - name: phone
+          in: query
+          required: false
+          description: Bắt buộc với khách (không có token)
+          schema: { type: string }
+      responses:
+        '200':
+          description: Đã huỷ
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiEnvelope' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /audit:
+    get:
+      tags: [Admin]
+      summary: Audit log append-only (ADMIN, S2-06)
+      parameters:
+        - name: entityType
+          in: query
+          schema: { type: string, example: BOOKING }
+        - name: entityId
+          in: query
+          schema: { type: string, example: '101' }
+        - name: action
+          in: query
+          schema: { type: string, example: BOOKING_CANCEL }
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageMeta'
+                          - type: object
+                            properties:
+                              content:
+                                type: array
+                                items: { $ref: '#/components/schemas/AuditLog' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   /bookings/{id}/status:
     parameters:
@@ -1086,7 +1464,16 @@ paths:
   /customers:
     get:
       tags: [Admin]
-      summary: Danh sách khách hàng tổng hợp (ADMIN)
+      summary: Danh sách khách hàng tổng hợp (ADMIN) — array hoặc phân trang
+      description: |
+        Không truyền `page` → array (legacy). Có `page` → `PageResponse` (S2-09).
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
       responses:
         '200':
           description: OK
@@ -1098,8 +1485,16 @@ paths:
                   - type: object
                     properties:
                       data:
-                        type: array
-                        items: { $ref: '#/components/schemas/Customer' }
+                        oneOf:
+                          - type: array
+                            items: { $ref: '#/components/schemas/Customer' }
+                          - allOf:
+                              - $ref: '#/components/schemas/PageMeta'
+                              - type: object
+                                properties:
+                                  content:
+                                    type: array
+                                    items: { $ref: '#/components/schemas/Customer' }
         '403':
           $ref: '#/components/responses/Forbidden'
 
@@ -1424,7 +1819,18 @@ components:
         staffName: { type: string, example: Minh }
         status:
           type: string
-          enum: [bestätigt, 'in Bearbeitung', abgeschlossen, storniert]
+          description: 'Terminal: abgeschlossen | storniert | nicht erschienen | abgelaufen'
+          enum: [zahlung ausstehend, bestätigt, eingecheckt, 'in Bearbeitung', abgeschlossen, storniert, 'nicht erschienen', abgelaufen]
+        confirmationCode:
+          type: string
+          description: 'S2-08: mã tra cứu cho guest, ví dụ TT-7K3M9Q'
+        versionNo:
+          type: integer
+          description: 'S2-02: số phiên bản lịch, tăng mỗi lần reschedule'
+        cancellation:
+          allOf:
+            - $ref: '#/components/schemas/CancellationInfo'
+          nullable: true
         price: { type: string, description: 'Chuỗi đã format EUR, ví dụ "63 €"' }
         priceSnapshot:
           type: number
@@ -1479,6 +1885,9 @@ components:
         phone: { type: string }
         email: { type: string, format: email }
         note: { type: string }
+        overrideNoShow:
+          type: boolean
+          description: 'S2-05: staff bỏ qua ngưỡng no-show (bị bỏ qua nếu không phải staff)'
 
     BookingStatusRequest:
       type: object
@@ -1486,8 +1895,140 @@ components:
       properties:
         status:
           type: string
-          enum: [bestätigt, 'in Bearbeitung', abgeschlossen, storniert]
+          enum: [zahlung ausstehend, bestätigt, eingecheckt, 'in Bearbeitung', abgeschlossen, storniert, 'nicht erschienen', abgelaufen]
         employee: { type: string }
+        reason:
+          type: string
+          description: 'Bắt buộc với một số transition (vd. abgelaufen, đổi lịch quá cutoff)'
+
+    RescheduleRequest:
+      type: object
+      required: [date, time]
+      properties:
+        date: { type: string, format: date, example: '2026-11-25' }
+        time: { type: string, example: '14:00' }
+        serviceIds:
+          type: array
+          maxItems: 3
+          description: 'Bỏ trống = giữ nguyên dịch vụ hiện tại'
+          items: { type: integer, format: int64 }
+        staffId:
+          type: integer
+          format: int64
+          description: 'Bỏ trống = giữ thợ hiện tại'
+        reason:
+          type: string
+          description: 'Bắt buộc khi staff override cutoff 24h'
+        note: { type: string }
+
+    NoShowRequest:
+      type: object
+      properties:
+        reason: { type: string }
+        override:
+          type: boolean
+          description: 'Cho phép đánh dấu trước giờ hẹn (staff, bắt buộc kèm reason)'
+
+    CancellationInfo:
+      type: object
+      properties:
+        late: { type: boolean }
+        feeAmount: { type: number, format: double, example: 0 }
+        refundAmount: { type: number, format: double, example: 0 }
+        reason: { type: string }
+        requestedByRole: { type: string, example: USER }
+        cancelledAt: { type: string, format: date-time }
+
+    BookingStatusHistory:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        fromStatus: { type: string, nullable: true, example: bestätigt }
+        toStatus: { type: string, example: storniert }
+        actorId: { type: string, format: uuid, nullable: true }
+        actorLabel: { type: string, example: admin@gmail.com }
+        actorRole: { type: string, example: ADMIN }
+        reason: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    GuestLookupRequest:
+      type: object
+      required: [confirmationCode, phone]
+      properties:
+        confirmationCode: { type: string, maxLength: 16, example: TT-7K3M9Q }
+        phone: { type: string, example: '0176 12345678' }
+
+    GuestLookupVerifyRequest:
+      type: object
+      required: [challengeId, otp]
+      properties:
+        challengeId: { type: string, format: uuid }
+        otp: { type: string, example: '123456' }
+
+    GuestLookupChallenge:
+      type: object
+      properties:
+        challengeId: { type: string, format: uuid }
+        expiresAt: { type: string, format: date-time }
+        attemptsRemaining: { type: integer, example: 5 }
+        otp:
+          type: string
+          nullable: true
+          description: 'Chỉ có khi GUEST_LOOKUP_EXPOSE_OTP=true (dev/test)'
+        message: { type: string }
+
+    GuestLookupResult:
+      type: object
+      properties:
+        booking: { $ref: '#/components/schemas/Booking' }
+        otherBookings:
+          type: array
+          items: { $ref: '#/components/schemas/Booking' }
+
+    WaitlistRequest:
+      type: object
+      required: [serviceId, desiredDate, phone]
+      properties:
+        serviceId: { type: integer, format: int64 }
+        desiredDate: { type: string, format: date, example: '2026-11-25' }
+        desiredStartTime: { type: string, nullable: true, example: '09:00' }
+        name: { type: string }
+        phone: { type: string }
+        email: { type: string, format: email }
+        note: { type: string }
+
+    WaitlistEntry:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        serviceId: { type: integer, format: int64 }
+        serviceName: { type: string, example: Pediküre }
+        desiredDate: { type: string, format: date }
+        desiredStartTime: { type: string, nullable: true }
+        name: { type: string }
+        phone: { type: string }
+        email: { type: string, format: email }
+        note: { type: string }
+        status: { type: string, enum: [ACTIVE, NOTIFIED, CANCELLED, EXPIRED] }
+        notifiedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    AuditLog:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        actorId: { type: string, format: uuid, nullable: true }
+        actorEmail: { type: string, nullable: true }
+        actorRole: { type: string, nullable: true }
+        action: { type: string, example: BOOKING_CANCEL }
+        entityType: { type: string, example: BOOKING }
+        entityId: { type: string, example: '101' }
+        beforeJson: { type: string, nullable: true }
+        afterJson: { type: string, nullable: true }
+        reason: { type: string, nullable: true }
+        ip: { type: string, nullable: true }
+        traceId: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
 
     AvailabilityResult:
       type: object
@@ -1618,6 +2159,10 @@ components:
         email: { type: string, format: email }
         letzterBesuch: { type: string }
         besuche: { type: integer, format: int64 }
+        noShowCount:
+          type: integer
+          format: int64
+          description: 'S2-05: số lần khách không đến (nicht erschienen)'
 
     DashboardStats:
       type: object

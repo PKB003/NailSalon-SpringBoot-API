@@ -19,8 +19,8 @@ docker compose up --build
 - Swagger UI: http://localhost:8080/swagger-ui.html
 - Health: http://localhost:8080/actuator/health (Docker healthcheck dùng endpoint này)
 - MySQL có healthcheck; app chỉ start khi MySQL healthy.
-- Flyway tự chạy `V1__init.sql` + `V2__sprint1_staff_availability.sql` trước khi Hibernate
-  khởi động (`ddl-auto=none`).
+- Flyway tự chạy `V1__init.sql` + `V2__sprint1_staff_availability.sql` +
+  `V3__sprint2_booking_v2.sql` trước khi Hibernate khởi động (`ddl-auto=none`).
 - Lần chạy đầu seed: admin, 6 dịch vụ mẫu, 1 chi nhánh `Europe/Berlin`, 3 thợ
   (Minh/Linh/Hoa) + kỹ năng + ca 09:00–18:00 Mon–Sat trong 14 ngày.
 
@@ -57,9 +57,17 @@ Trên Windows PowerShell dùng `$env:JWT_SECRET_KEY="..."` thay cho `export`.
 - `BookingFlowTest` (7) — đặt 2 dịch vụ liên tiếp 60'+45' với 1 thợ, snapshot giá, chặn trùng giờ.
 - `RbacMatrixTest` (7) — ma trận phân quyền S1 (thợ chỉ thấy lịch mình, lễ tân/quản lý).
 - `ApiContractSmokeTest` / `ErrorContractTest` — contract cũ + envelope lỗi + `/v3/api-docs`.
-- `FlywayMigrationTest` — chạy migration V1+V2 trên DB trống (H2 MODE=MySQL).
+- `FlywayMigrationTest` — chạy migration V1+V2+V3 trên DB trống (H2 MODE=MySQL).
 - `BookingConcurrencyTest` — Testcontainers MySQL, 20 thread: cùng thợ + cùng slot →
   đúng **1** thành công, còn lại `409 SLOT_TAKEN`; không có Docker → tự skip.
+- **Sprint 2:**
+  - `Sprint2BookingPolicyTest` (10) — state machine/history, cancel free/late (WARN),
+    reschedule cutoff + version, no-show override/idempotent, chặn no-show + admin override.
+  - `GuestLookupTest` (6) — OTP 2 bước, sai code/SĐT không lộ dữ liệu, rate limit 429,
+    giới hạn số lần nhập, OTP dùng 1 lần.
+  - `IdempotencyTest` (3) — replay cùng key, cùng key khác payload → 409, không key → 2 booking.
+  - `WaitlistTest` (3) — chống spam trùng, huỷ booking → NOTIFIED + notify, public/staff auth.
+  - `Sprint2AdminApiTest` (3) — audit log + RBAC, phân trang/filter/sort booking & customer.
 - JaCoCo gate: instruction coverage ≥ 25% (S1 thực tế ~73%, line ~77%, branch ~52%).
   Mục tiêu dài hạn theo Plan §7.3: line ≥ 70%, branch ≥ 60%.
 
@@ -74,6 +82,18 @@ Mọi cấu hình nhạy cảm đọc từ biến môi trường (xem [.env.exam
 | `ADMIN_PASSWORD` | production | Bỏ trống → sinh ngẫu nhiên, in 1 lần trong log |
 | `APP_CORS_ALLOWED_ORIGINS` | | Mặc định localhost:3000, localhost:5173 |
 | `SPRING_JPA_HIBERNATE_DDL_AUTO` | | Mặc định `none`; có thể bật `validate` sau deploy đầu |
+| `FREE_CANCEL_HOURS` | | Mặc định `24` — cutoff huỷ/đổi lịch miễn phí (D4) |
+| `LATE_CANCEL_ACTION` | | `WARN` (mặc định) \| `FEE` \| `BLOCK` — huỷ trong 24h |
+| `LATE_CANCEL_FEE_PERCENT` | | Mặc định `0` — chỉ dùng khi action `FEE` và DB chưa có policy |
+| `CHECK_IN_WINDOW_HOURS` | | Mặc định `24` — cửa sổ được check-in trước giờ hẹn |
+| `NO_SHOW_MAX_COUNT` | | Mặc định `3` — vượt ngưỡng thì chặn đặt lịch mới |
+| `NO_SHOW_WINDOW_DAYS` | | Mặc định `180` — cửa sổ đếm no-show |
+| `NO_SHOW_ENFORCEMENT` | | `BLOCK` (mặc định) \| `WARN` |
+| `IDEMPOTENCY_TTL_HOURS` | | Mặc định `24` — thời gian giữ `Idempotency-Key` |
+| `GUEST_LOOKUP_OTP_TTL_MINUTES` | | Mặc định `10` |
+| `GUEST_LOOKUP_MAX_ATTEMPTS` | | Mặc định `5` lần nhập OTP |
+| `GUEST_LOOKUP_MAX_REQUESTS` | | Mặc định `5` request / `GUEST_LOOKUP_RATE_WINDOW_MINUTES` (15') |
+| `GUEST_LOOKUP_EXPOSE_OTP` | dev/test | `true` để trả OTP trong response; **production phải `false`** |
 | `FISKALY_*` | S3 | Placeholder, xem [docs/tse/fiskaly-setup.md](docs/tse/fiskaly-setup.md) |
 
 `src/main/resources/application.properties` chỉ chứa **giá trị dev mặc định**;
@@ -90,6 +110,8 @@ secret thật override bằng env. Không commit `.env`.
 - [Biên bản chốt D1–D18 (2026-11-14)](docs/decisions/2026-11-14-decision-record.md)
 - [Flyway migrate & rollback V1](docs/db/rollback-V1.md)
 - [Flyway migrate & rollback V2 (Sprint 1)](docs/db/rollback-V2.md)
+- [Flyway migrate & rollback V3 (Sprint 2)](docs/db/rollback-V3.md)
+- [Ghi chú Sprint 2 cho frontend (S2-10)](docs/sprint2-frontend-notes.md)
 - [fiskaly SIGN DE — sandbox & tích hợp](docs/tse/fiskaly-setup.md)
 - [Plan.md](Plan.md) — phân tích, kiến trúc, roadmap, test strategy, runbook thuế/TSE.
 
@@ -108,6 +130,36 @@ secret thật override bằng env. Không commit `.env`.
 
 Chi tiết endpoint + ví dụ JSON: [API-ENDPOINTS.md](API-ENDPOINTS.md).
 Rollback migration: [docs/db/rollback-V2.md](docs/db/rollback-V2.md).
+
+## Sprint 2 — Booking v2: policy, waitlist, no-show, audit
+
+Đã hoàn thành backend (2026-11-19):
+
+- Schema V3: `booking_status_history`, `booking_version`, `cancellation_policy`,
+  `cancellation_record`, `waitlist`, `audit_log`, `idempotency_key`,
+  `guest_lookup_challenge`; `booking.confirmation_code` (unique).
+- **S2-01** state machine production + history bất biến. Booking mới ở `bestätigt`
+  (trước S1 là `in Bearbeitung` → **breaking change** cho frontend S2-10);
+  terminal = `abgeschlossen` / `storniert` / `nicht erschienen` / `abgelaufen`.
+- **S2-02** `PATCH /bookings/:id/reschedule`: cutoff 24h cho khách, staff override kèm
+  `reason`, mỗi lần đổi lưu `booking_version` + tăng `versionNo`.
+- **S2-03** huỷ theo policy service/branch: `WARN` (mặc định, vẫn huỷ + ghi late),
+  `FEE`, `BLOCK`; trả `cancellation { late, feeAmount, refundAmount, ... }`.
+- **S2-04** waitlist công khai + chống spam bằng unique `active_key`; khi slot được
+  giải phóng, entry ACTIVE đúng service/ngày được đánh dấu `NOTIFIED` + gửi thông báo.
+- **S2-05** `PATCH /bookings/:id/no-show`; đếm no-show theo SĐT/user trong 180 ngày,
+  vượt 3 lần → `409 NO_SHOW_BLOCKED`; staff override bằng `overrideNoShow` + audit.
+- **S2-06** audit log append-only (ai làm gì, before/after JSON, traceId) + `GET /audit`
+  chỉ ADMIN; `@Audited` AOP cho endpoint mới.
+- **S2-07** `Idempotency-Key` cho `POST /bookings`: retry cùng key trả nguyên booking cũ,
+  cùng key khác payload → `409 IDEMPOTENCY_KEY_REUSED`.
+- **S2-08** `POST /bookings/lookup` → `POST /bookings/lookup/verify`: confirmation code +
+  SĐT + OTP (SHA-256 salted, dùng 1 lần, rate limit, không lộ dữ liệu người khác).
+- **S2-09** `GET /bookings` và `GET /customers`: không `page` → array cũ; có `page` →
+  `PageResponse`; filter `status/staffId/serviceId/from/to/q`, sort whitelist.
+
+Chi tiết endpoint + ví dụ JSON: [API-ENDPOINTS.md](API-ENDPOINTS.md).
+Rollback migration: [docs/db/rollback-V3.md](docs/db/rollback-V3.md).
 
 ## CI
 

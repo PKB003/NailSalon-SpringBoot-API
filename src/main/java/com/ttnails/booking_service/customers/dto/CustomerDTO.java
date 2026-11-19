@@ -6,7 +6,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * Customer shape cho trang Admin:
- * { id, name, telefon, email, letzterBesuch, besuche }
+ * { id, name, telefon, email, letzterBesuch, besuche, noShowCount }
  */
 @Data
 @NoArgsConstructor
@@ -18,4 +18,6 @@ public class CustomerDTO {
     private String email;
     private String letzterBesuch;
     private long besuche;
+    /** S2-05: số lần khách không đến (dùng để cảnh báo/chặn đặt lịch). */
+    private long noShowCount;
 }

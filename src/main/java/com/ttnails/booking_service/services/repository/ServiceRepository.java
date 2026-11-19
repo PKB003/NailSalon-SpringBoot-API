@@ -11,6 +11,8 @@ public interface ServiceRepository extends JpaRepository<Service, Long> {
 
     Optional<Service> findByName(String name);
 
+    Optional<Service> findByIdAndActiveTrue(Long id);
+
     List<Service> findByActiveTrueOrderByIdAsc();
 
     List<Service> findByIdInAndActiveTrue(Collection<Long> ids);

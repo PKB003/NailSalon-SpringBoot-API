@@ -3,6 +3,7 @@ package com.ttnails.booking_service.bookings.dto;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -52,8 +53,29 @@ public class BookingResponse {
     /** Tổng thời lượng dịch vụ (phút), không gồm buffer. */
     private Integer totalDurationMinutes;
 
+    // ==================== Sprint 2 ====================
+
+    /** Mã tra cứu cho guest (S2-08). */
+    private String confirmationCode;
+
+    /** Số phiên bản lịch hiện tại (S2-02), bắt đầu từ 0. */
+    private Integer versionNo;
+
+    /** Thông tin huỷ gần nhất (S2-03) — null nếu booking chưa huỷ. */
+    private CancellationInfo cancellation;
+
     /** Chi tiết từng dịch vụ — chỉ trả ở POST /bookings (tránh N+1 khi list). */
     private List<Item> items;
+
+    @Data
+    public static class CancellationInfo {
+        private boolean late;
+        private BigDecimal feeAmount;
+        private BigDecimal refundAmount;
+        private String reason;
+        private String requestedByRole;
+        private LocalDateTime cancelledAt;
+    }
 
     @Data
     public static class Item {

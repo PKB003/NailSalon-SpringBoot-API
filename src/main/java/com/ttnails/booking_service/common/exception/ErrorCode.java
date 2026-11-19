@@ -24,6 +24,11 @@ public enum ErrorCode {
     TOO_MANY_SERVICES("Es können maximal 3 Leistungen pro Termin gebucht werden", HttpStatus.BAD_REQUEST),
     INVALID_SLOT("Der Termin muss auf dem Buchungsraster liegen", HttpStatus.BAD_REQUEST),
     INVALID_TIME_RANGE("Startzeit muss vor der Endzeit liegen", HttpStatus.BAD_REQUEST),
+    RESCHEDULE_TOO_LATE("Umbuchung ist nur bis 24 Stunden vor dem Termin möglich, bitte rufen Sie uns an", HttpStatus.BAD_REQUEST),
+    REASON_REQUIRED("Für diese Aktion ist eine Begründung erforderlich", HttpStatus.BAD_REQUEST),
+    INVALID_CONFIRMATION_CODE("Bestätigungscode ungültig", HttpStatus.BAD_REQUEST),
+    INVALID_OTP("Der Code ist ungültig", HttpStatus.BAD_REQUEST),
+    OTP_EXPIRED("Der Code ist abgelaufen. Bitte fordern Sie einen neuen an.", HttpStatus.BAD_REQUEST),
 
     // 401 / 403
     FAILED_AUTHENTICATED("Wrong log-in infos", HttpStatus.UNAUTHORIZED),
@@ -48,10 +53,22 @@ public enum ErrorCode {
     PHONE_IS_ALREADY_USED("Phone already exists", HttpStatus.CONFLICT),
     BOOKING_ALREADY_CANCELLED("Termin wurde bereits storniert", HttpStatus.CONFLICT),
     BOOKING_ALREADY_COMPLETED("Termin ist bereits abgeschlossen und kann nicht storniert werden", HttpStatus.CONFLICT),
+    BOOKING_TERMINAL("Termin ist abgeschlossen oder storniert und kann nicht mehr geändert werden", HttpStatus.CONFLICT),
     INVALID_STATUS_TRANSITION("Statuswechsel ist nicht erlaubt", HttpStatus.CONFLICT),
     COMPLETION_TOO_EARLY("Termin kann erst nach Beginn als abgeschlossen markiert werden", HttpStatus.CONFLICT),
     USER_HAS_BOOKINGS("User hat noch Termine und kann nicht gelöscht werden", HttpStatus.CONFLICT),
     DATA_INTEGRITY_VIOLATION("Datenkonflikt: die Anfrage verletzt bestehende Verknüpfungen", HttpStatus.CONFLICT),
+    LATE_CANCEL_BLOCKED("Stornierung innerhalb von 24 Stunden ist nicht möglich. Bitte rufen Sie uns an.", HttpStatus.CONFLICT),
+    WAITLIST_DUPLICATE("Sie stehen für diesen Tag bereits auf der Warteliste", HttpStatus.CONFLICT),
+    NO_SHOW_BLOCKED("Zu viele nicht wahrgenommene Termine. Bitte kontaktieren Sie uns.", HttpStatus.CONFLICT),
+    IDEMPOTENCY_KEY_REUSED("Idempotency-Key wurde bereits mit anderen Daten verwendet", HttpStatus.CONFLICT),
+    IDEMPOTENCY_IN_PROGRESS("Anfrage mit diesem Idempotency-Key wird bereits verarbeitet", HttpStatus.CONFLICT),
+    OTP_TOO_MANY_ATTEMPTS("Zu viele Versuche. Bitte fordern Sie einen neuen Code an.", HttpStatus.CONFLICT),
+    CHECK_IN_TOO_EARLY("Check-in ist erst kurz vor dem Termin möglich", HttpStatus.CONFLICT),
+    NO_SHOW_TOO_EARLY("Nicht-Erscheinen kann erst nach dem Terminbeginn markiert werden", HttpStatus.CONFLICT),
+
+    // 429
+    TOO_MANY_REQUESTS("Zu viele Anfragen. Bitte versuchen Sie es später erneut.", HttpStatus.TOO_MANY_REQUESTS),
 
     // 500
     ERROR_IN_GENERATING_TOKEN("Error generating token", HttpStatus.INTERNAL_SERVER_ERROR),

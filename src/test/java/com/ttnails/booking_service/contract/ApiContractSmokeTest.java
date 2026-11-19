@@ -142,7 +142,7 @@ class ApiContractSmokeTest {
                 .andExpect(jsonPath("$.data.anyAvailable[0]").value("09:00"))
                 .andExpect(jsonPath("$.data.staff[0].slots[0].start").exists());
 
-        // 6. POST /bookings → booking với id làm mã xác nhận, status "in Bearbeitung"
+        // 6. POST /bookings → booking mới ở trạng thái "bestätigt" (S2-01) + confirmation code
         // Dùng ngày +2 (>= 24h) để bước 10 test hủy miễn phí không phụ thuộc giờ chạy test.
         String cancellableDate = TestSupport.workdayAfter(2).toString();
         String bookingBody = "{\"serviceId\":" + serviceId + ",\"date\":\"" + cancellableDate + "\"," +
@@ -153,7 +153,8 @@ class ApiContractSmokeTest {
                         .contentType(MediaType.APPLICATION_JSON).content(bookingBody))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").isNumber())
-                .andExpect(jsonPath("$.data.status").value("in Bearbeitung"))
+                .andExpect(jsonPath("$.data.status").value("bestätigt"))
+                .andExpect(jsonPath("$.data.confirmationCode").isNotEmpty())
                 .andExpect(jsonPath("$.data.time").value("14:30"))
                 .andExpect(jsonPath("$.data.uhrzeit").value("14:30"))
                 .andExpect(jsonPath("$.data.staffId").isNumber())
@@ -268,7 +269,7 @@ class ApiContractSmokeTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("Termin wurde bereits storniert"));
 
-        // 10b. Chính sách 24h: đặt lịch vào slot hợp lệ kế tiếp (luôn < 24h) rồi cancel → 400 CANCEL_TOO_LATE
+        // 10b. Chính sách 24h (D4): trong 24h là WARN — vẫn huỷ được, ghi late-cancel
         LocalDateTime near = nextValidOpenSlot();
         String nearDate = near.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
         String nearTime = near.format(DateTimeFormatter.ofPattern("HH:mm"));
@@ -283,18 +284,18 @@ class ApiContractSmokeTest {
                 .andReturn();
         long nearBookingId = getBody(nearResult).get("data").get("id").asLong();
 
-        // Khách tự cancel trong vòng 24h → 400 với message tiếng Đức
+        // Khách tự cancel trong vòng 24h → 200 + late=true (không chặn ở MVP)
         mockMvc.perform(patch("/bookings/" + nearBookingId + "/cancel")
                         .header("Authorization", "Bearer " + userToken2))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value(
-                        "Stornierung nur bis 24 Stunden vor dem Termin möglich, bitte anrufen"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("storniert"))
+                .andExpect(jsonPath("$.data.cancellation.late").value(true));
 
-        // Admin cancel lịch đó được (ngoại lệ chính sách)
+        // Cancel lần 2 (kể cả admin) → 409 BOOKING_ALREADY_CANCELLED
         mockMvc.perform(patch("/bookings/" + nearBookingId + "/cancel")
                         .header("Authorization", "Bearer " + adminToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("storniert"));
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("BOOKING_ALREADY_CANCELLED"));
 
         // 11. Token user thường bị chặn endpoint admin → 403
         mockMvc.perform(get("/bookings").header("Authorization", "Bearer " + userToken2))

@@ -10,7 +10,9 @@
 - **CORS:** đã mở sẵn cho `http://localhost:3000` và `http://localhost:5173`
   (có thể đổi qua property `app.cors.allowed-origins`).
 - **Auth:** gửi header `Authorization: Bearer <token>` cho mọi endpoint (trừ đăng nhập/đăng ký,
-  GET `/services`, GET `/availability` và GET `/bookings/availability` — các endpoint này public).
+  GET `/services`, GET `/availability`, GET `/bookings/availability`, POST `/bookings`,
+  POST `/bookings/lookup`, POST `/bookings/lookup/verify`, POST `/waitlist` và
+  DELETE `/waitlist/:id?phone=...` — các endpoint này public).
 - **401** (token thiếu/hết hạn/logout) → frontend tự xóa token, về `/auth`.
 - **403** (đã đăng nhập nhưng không đủ quyền — ví dụ gọi endpoint admin bằng token client).
 - **Vai trò (S1):** `USER` (khách), `NAIL_TECH` (thợ — chỉ lịch của mình),
@@ -208,7 +210,7 @@ S1: gửi `serviceIds` (1–3, ưu tiên) hoặc `serviceId` (legacy), và có t
 ```json
 // Response → data
 {
-  "id": 101,                          // ← dùng làm mã xác nhận
+  "id": 101,
   "serviceId": 2,                     // dịch vụ đầu tiên
   "service": "Pediküre + Maniküre",
   "dienstleistung": "Pediküre + Maniküre",
@@ -228,7 +230,10 @@ S1: gửi `serviceIds` (1–3, ưu tiên) hoặc `serviceId` (legacy), và có t
   "mitarbeiter": "Minh",
   "staffId": 1,
   "staffName": "Minh",
-  "status": "in Bearbeitung",
+  "status": "bestätigt",              // S2: booking mới KHÔNG còn "in Bearbeitung"
+  "confirmationCode": "TT-7K3M9Q",    // S2: mã tra cứu cho guest
+  "versionNo": 0,                     // S2: tăng mỗi lần reschedule
+  "cancellation": null,               // S2: chỉ có sau khi huỷ
   "price": "63 €",                    // snapshot tại thời điểm đặt
   "priceSnapshot": 63.00,
   "currency": "EUR",
@@ -249,6 +254,11 @@ S1: gửi `serviceIds` (1–3, ưu tiên) hoặc `serviceId` (legacy), và có t
 - Không thợ nào đủ điều kiện (thiếu skill/không có ca/ngày nghỉ) → `409 NO_STAFF_AVAILABLE`.
 - Ngoài giờ mở cửa hoặc phút lệch bước 30' → `400 OUTSIDE_OPENING_HOURS` / `400 INVALID_SLOT`.
 - Quá 3 dịch vụ → `400 TOO_MANY_SERVICES`; service/thợ không tồn tại → `404`.
+- **S2-07 Idempotency:** gửi header `Idempotency-Key: <uuid>`. Retry cùng key + cùng body
+  trả lại **đúng booking cũ** (không tạo mới); cùng key nhưng body khác →
+  `409 IDEMPOTENCY_KEY_REUSED`; key đang xử lý → `409 IDEMPOTENCY_IN_PROGRESS` (retry sau).
+- **S2-05 no-show:** khách có ≥ 3 lần `nicht erschienen` trong 180 ngày →
+  `409 NO_SHOW_BLOCKED`. Staff có thể gửi thêm `"overrideNoShow": true` để bỏ qua (audit).
 
 ### Booking shape chung
 Backend trả **song song field tiếng Anh (client view) và tiếng Đức (admin view)** trong cùng
@@ -257,14 +267,150 @@ Backend trả **song song field tiếng Anh (client view) và tiếng Đức (ad
 - client view: `service`, `date`, `time`, `endDate`, `endTime`, `name`, `employee`, `status`, `price` (`"63 €"`)
 - admin view: `dienstleistung`, `datum`, `uhrzeit`, `endUhrzeit`, `kunde`, `mitarbeiter` (giá trị trùng field tiếng Anh)
 - S1: `staffId`, `staffName`, `priceSnapshot` (EUR), `currency`, `totalDurationMinutes`, `items[]`
-- `status`: `bestätigt` | `in Bearbeitung` | `abgeschlossen` | `storniert` (booking mới luôn `in Bearbeitung`)
+- S2: `confirmationCode`, `versionNo`, `cancellation { late, feeAmount, refundAmount, reason, requestedByRole, cancelledAt }`
+- `status`: `zahlung ausstehend` | `bestätigt` | `eingecheckt` | `in Bearbeitung` |
+  `abgeschlossen` | `storniert` | `nicht erschienen` | `abgelaufen`.
+  Booking mới luôn `bestätigt` (D4 — MVP không cọc).
+  **Terminal (bất biến):** `abgeschlossen`, `storniert`, `nicht erschienen`, `abgelaufen`.
 
 | Method | Endpoint | Quyền | Response |
 |---|---|---|---|
 | GET | `/bookings/my` | token khách | `booking[]` của khách, mới nhất trước |
-| GET | `/bookings` | ADMIN/MANAGER/RECEPTIONIST | `booking[]` toàn bộ, mới nhất trước |
-| PATCH | `/bookings/:id/cancel` | chủ booking hoặc ADMIN/MANAGER/RECEPTIONIST | booking (`status = "storniert"`). **Chính sách 24h:** khách chỉ tự hủy được khi còn ≥ 24h trước giờ hẹn; trong vòng 24h → `400 { message: "Stornierung nur bis 24 Stunden vor dem Termin möglich, bitte anrufen" }` (frontend hiện tooltip "bitte anrufen"). Admin được phép hủy mọi lúc (trừ lịch đã `abgeschlossen`/`storniert` — terminal, bất biến). Lịch đã qua giờ → `400 APPOINTMENT_PASSED`; cancel 2 lần → `409`; cancel lịch đã hoàn thành → `409`. |
-| PATCH | `/bookings/:id/status` | ADMIN/MANAGER/RECEPTIONIST | booking — body `{ "status": "...", "employee": "Minh"? }`. Tuân **ma trận transition**: `in Bearbeitung` ↔ `bestätigt`, cả 2 → `abgeschlossen`/`storniert`; `abgeschlossen`/`storniert` là **terminal** (khóa mọi transition kể cả admin, bảo vệ doanh thu). Đóng lịch chưa tới giờ → `409 COMPLETION_TOO_EARLY`; transition cấm → `409 INVALID_STATUS_TRANSITION`. |
+| GET | `/bookings` | ADMIN/MANAGER/RECEPTIONIST | `booking[]` (không `page`) hoặc `PageResponse` (có `page`) — xem S2-09 |
+| GET | `/bookings/:id/history` | chủ booking hoặc staff | `[{ id, fromStatus, toStatus, actorId, actorLabel, actorRole, reason, createdAt }]` |
+| PATCH | `/bookings/:id/cancel` | chủ booking hoặc ADMIN/MANAGER/RECEPTIONIST | booking (`status = "storniert"`) + `cancellation` |
+| PATCH | `/bookings/:id/reschedule` | chủ booking hoặc ADMIN/MANAGER/RECEPTIONIST | booking mới + `versionNo` |
+| PATCH | `/bookings/:id/status` | ADMIN/MANAGER/RECEPTIONIST | booking — body `{ "status": "...", "employee"?: "...", "reason"?: "..." }` |
+| PATCH | `/bookings/:id/no-show` | ADMIN/MANAGER/RECEPTIONIST | booking (`status = "nicht erschienen"`) |
+| POST | `/bookings/lookup` | public | tạo OTP tra cứu (S2-08) |
+| POST | `/bookings/lookup/verify` | public | booking sau khi xác thực OTP (S2-08) |
+
+#### Huỷ lịch — chính sách 24h (D4)
+
+- Khách huỷ khi còn **≥ 24h**: miễn phí, `cancellation.late = false`.
+- Khách huỷ **trong 24h**: mặc định `WARN` → vẫn huỷ được, `cancellation.late = true`,
+  `feeAmount = 0` (MVP chưa thu phí). Admin có thể bật `FEE`/`BLOCK` qua
+  `cancellation_policy` (DB) hoặc `LATE_CANCEL_ACTION`.
+- Huỷ trễ bị chặn (`BLOCK`) → `409 LATE_CANCEL_BLOCKED`.
+- Lịch đã qua giờ và khách tự huỷ → `400 APPOINTMENT_PASSED`.
+- Huỷ lần 2 → `409 BOOKING_ALREADY_CANCELLED`; lịch terminal khác → `409 BOOKING_TERMINAL`.
+- Tham số `?reason=` (optional) được ghi vào `booking_status_history` + audit log.
+- Admin/staff huỷ hộ luôn bỏ qua cutoff; phí late chỉ tính cho khách.
+
+#### Đổi lịch — reschedule (S2-02)
+
+```json
+// PATCH /bookings/101/reschedule
+{ "date": "2026-11-25", "time": "14:00",
+  "serviceIds": [2, 1],        // optional — bỏ trống giữ nguyên
+  "staffId": 1,                 // optional — bỏ trống giữ thợ cũ
+  "reason": "Kulanz",           // bắt buộc khi staff override cutoff
+  "note": "..." }               // optional
+```
+
+- Khách chỉ đổi được khi còn ≥ 24h; trong 24h → `400 RESCHEDULE_TOO_LATE`.
+- Staff được override nhưng **bắt buộc** `reason`, thiếu → `400 REASON_REQUIRED`.
+- Mỗi lần đổi lưu snapshot lịch cũ vào `booking_version`; response trả `versionNo` (1, 2, …).
+- Lịch terminal → `409 BOOKING_TERMINAL`.
+
+#### No-show (S2-05)
+
+```json
+// PATCH /bookings/101/no-show
+{ "reason": "Telefonisch bestätigt", "override": true }
+```
+
+- Mặc định chỉ đánh dấu được **sau** giờ hẹn; trước giờ → `409 NO_SHOW_TOO_EARLY`.
+- Staff override trước giờ phải gửi `override: true` + `reason`, thiếu → `400 REASON_REQUIRED`.
+- Đánh dấu lại cùng trạng thái là idempotent (200, không tạo history trùng).
+- Khách vượt ngưỡng no-show bị chặn đặt lịch mới (xem POST `/bookings`).
+
+#### Đổi trạng thái (S2-01)
+
+- Ma trận: `bestätigt` → `eingecheckt` / `in Bearbeitung` / `abgeschlossen` / `storniert` /
+  `nicht erschienen`; `eingecheckt` → `in Bearbeitung` / `storniert` / `nicht erschienen`;
+  `in Bearbeitung` → `bestätigt` / `abgeschlossen` / `storniert`.
+- Check-in quá sớm (ngoài `CHECK_IN_WINDOW_HOURS`) → `409 CHECK_IN_TOO_EARLY`.
+- Đóng lịch chưa tới giờ → `409 COMPLETION_TOO_EARLY`.
+- Transition cấm hoặc lịch terminal → `409 INVALID_STATUS_TRANSITION` / `409 BOOKING_TERMINAL`.
+- Mọi thay đổi ghi `booking_status_history` (from/to, actor, role, reason, thời điểm).
+
+#### Tra cứu booking của guest (S2-08)
+
+```json
+// Bước 1 — POST /bookings/lookup
+{ "confirmationCode": "TT-7K3M9Q", "phone": "0176 12345678" }
+// → data: { challengeId, expiresAt, attemptsRemaining, otp?, message }
+//   otp chỉ có khi GUEST_LOOKUP_EXPOSE_OTP=true (dev/test)
+
+// Bước 2 — POST /bookings/lookup/verify
+{ "challengeId": "uuid", "otp": "123456" }
+// → data: { booking: {...}, otherBookings: [] }
+```
+
+- Sai confirmation code **hoặc** SĐT → cùng lỗi `400 INVALID_CONFIRMATION_CODE`
+  (không tiết lộ booking/người khác có tồn tại hay không).
+- Sai OTP → `400 INVALID_OTP`; sai quá 5 lần → `409 OTP_TOO_MANY_ATTEMPTS`; quá hạn → `400 OTP_EXPIRED`.
+- Quá 5 request / 15 phút / SĐT → `429 TOO_MANY_REQUESTS`.
+- OTP lưu dạng SHA-256 salted theo `challengeId`, **dùng 1 lần**.
+
+## 4b. Waitlist (S2-04)
+
+| Method | Endpoint | Quyền | Ghi chú |
+|---|---|---|---|
+| POST | `/waitlist` | public | `{ serviceId, desiredDate, desiredStartTime?, name, phone, email?, note? }` |
+| GET | `/waitlist?date=&serviceId=&status=&page=&size=` | ADMIN/MANAGER/RECEPTIONIST | `PageResponse` |
+| DELETE | `/waitlist/:id?phone=...` | public (đúng SĐT) hoặc staff | Huỷ entry, status `CANCELLED` |
+
+```json
+// Response → data
+{ "id": 9, "serviceId": 2, "serviceName": "Pediküre",
+  "desiredDate": "2026-11-25", "desiredStartTime": null,
+  "name": "Anna Müller", "phone": "0176 12345678", "email": "anna@test.de",
+  "status": "ACTIVE", "notifiedAt": null, "createdAt": "2026-11-19T10:00:00" }
+```
+
+- `status`: `ACTIVE` | `NOTIFIED` | `CANCELLED` | `EXPIRED`.
+- Mỗi `SĐT + dịch vụ + ngày` chỉ có **1 entry ACTIVE**; trùng → `409 WAITLIST_DUPLICATE`.
+- Khi booking cùng ngày/dịch vụ bị huỷ hoặc đổi lịch và slot thực sự còn trống,
+  các entry ACTIVE được chuyển `NOTIFIED` + gửi thông báo (adapter log ở dev).
+- `activeKey` được set `NULL` sau khi notify/huỷ → khách có thể đăng ký lại.
+
+## 4c. Audit log (S2-06)
+
+### GET `/audit` (ADMIN)
+
+Query: `entityType`, `entityId`, `action`, `actorId`, `from`, `to` (ISO date-time),
+`page` (mặc định 0), `size` (mặc định 20). Trả `PageResponse`.
+
+```json
+// data.content[0]
+{ "id": 42, "actorId": "uuid", "actorEmail": "admin@gmail.com", "actorRole": "ADMIN",
+  "action": "BOOKING_CANCEL", "entityType": "BOOKING", "entityId": "101",
+  "beforeJson": "{...}", "afterJson": "{...}", "reason": "Kundenwunsch",
+  "ip": "127.0.0.1", "traceId": "8f14e45f-...", "createdAt": "2026-11-19T10:15:30" }
+```
+
+- Append-only, ghi trong cùng transaction nghiệp vụ.
+- Action hiện có: `BOOKING_CREATE`, `BOOKING_CANCEL`, `BOOKING_STATUS_UPDATE`,
+  `BOOKING_NO_SHOW`, `BOOKING_RESCHEDULE` (+ các action `@Audited` khác).
+
+## 4d. Phân trang & filter admin list (S2-09)
+
+`GET /bookings` — không có `page` → **array** như S1; có `page` → `PageResponse`:
+
+```
+GET /bookings?page=0&size=20&status=bestätigt&staffId=1&serviceId=2
+             &from=2026-11-19&to=2026-11-30&q=anna&sort=startAt,asc
+```
+
+- `status`: chuỗi trạng thái tiếng Đức (đúng như response).
+- `from`/`to`: ngày `yyyy-MM-dd`, áp lên `start_at` (fallback `preferredDateTime`).
+- `q`: tìm trong tên, SĐT, email.
+- `sort`: whitelist `preferredDateTime|startAt|status|id` + `,asc|,desc` (mặc định `preferredDateTime,desc`).
+- `size` tối đa 100.
+
+`GET /customers?page=0&size=20` tương tự; phần tử có thêm `noShowCount`.
 
 ## 5. Staff & lịch làm việc (Sprint 1)
 
@@ -314,14 +460,15 @@ Backend trả **song song field tiếng Anh (client view) và tiếng Đức (ad
 
 ### GET `/customers`
 ```json
-// Response → data
+// Response → data (không page = array; có page = PageResponse)
 [{
   "id": "3f2c...-uuid",
   "name": "Anna Müller",
   "telefon": "017612345678",
   "email": "anna.m@email.de",
   "letzterBesuch": "10.04.2026",   // null nếu chưa có booking
-  "besuche": 8
+  "besuche": 8,
+  "noShowCount": 1                 // S2-05: số lần "nicht erschienen"
 }]
 ```
 
@@ -358,7 +505,7 @@ trend so sánh hôm nay/hôm qua và tháng này/tháng trước.
 ## Chạy thử
 
 ```bash
-docker compose up --build     # Flyway V1+V2 tự migrate; MySQL có healthcheck
+docker compose up --build     # Flyway V1+V2+V3 tự migrate; MySQL có healthcheck
 # hoặc local: ./mvnw spring-boot:run (cần MySQL + biến JWT_SECRET_KEY)
 # login nhanh:
 curl -X POST http://localhost:8080/auth/login -H "Content-Type: application/json" \
@@ -366,6 +513,12 @@ curl -X POST http://localhost:8080/auth/login -H "Content-Type: application/json
 
 # xem slot 2 dịch vụ liên tiếp (60' + 45'):
 curl "http://localhost:8080/availability?date=2026-11-20&serviceIds=2,1"
+
+# đặt lịch có Idempotency-Key:
+curl -X POST http://localhost:8080/bookings -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"serviceId":2,"date":"2026-11-25","time":"09:00","name":"Anna Müller",
+       "phone":"0176 12345678","email":"anna@test.de"}'
 ```
 
 ## Test tự động
@@ -383,7 +536,14 @@ curl "http://localhost:8080/availability?date=2026-11-20&serviceIds=2,1"
   đúng 1 thành công / 19 `SLOT_TAKEN`; nhiều thợ → số thành công = số thợ; multi-service
   giữ đủ `buffer_end`.
 - `ApiContractSmokeTest` / `ErrorContractTest` — contract cũ (register → booking → cancel → 401/403).
-- `FlywayMigrationTest` — chạy V1+V2 trên DB trống (H2 MODE=MySQL), seed branch.
+- `FlywayMigrationTest` — chạy V1+V2+V3 trên DB trống (H2 MODE=MySQL), seed branch.
+- **Sprint 2:**
+  - `Sprint2BookingPolicyTest` (10) — status/history/terminal, cancel free/late, reschedule
+    cutoff + version, check-in sớm, no-show override + chặn no-show.
+  - `GuestLookupTest` (6) — OTP 2 bước, không lộ dữ liệu, rate limit, giới hạn lần nhập.
+  - `IdempotencyTest` (3) — replay, conflict payload, không key.
+  - `WaitlistTest` (3) — chống trùng, notify khi giải phóng slot, phân quyền.
+  - `Sprint2AdminApiTest` (3) — audit log + RBAC, paging/filter/sort.
 
 Chạy: `./mvnw verify` (H2 cho test thường; `BookingConcurrencyTest` cần Docker).
 Trên Windows + Docker Desktop, nếu Testcontainers không tìm thấy daemon, thêm vào
