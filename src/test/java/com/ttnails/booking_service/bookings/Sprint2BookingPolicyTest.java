@@ -116,6 +116,30 @@ class Sprint2BookingPolicyTest {
         return body(result).get("data").get("anyAvailable").get(0).asText();
     }
 
+    /**
+     * Tìm ngày + giờ còn trống cho <b>đúng thợ</b> đang phụ trách booking.
+     *
+     * <p>Reschedule giữ nguyên thợ cũ, nên không thể hardcode giờ: các test khác
+     * dùng chung H2 DB có thể đã chiếm slot đó, dẫn tới 409 `SLOT_TAKEN` (lỗi CI
+     * từng gặp). Quét trong cửa sổ 14 ngày seed ca.</p>
+     */
+    private String[] firstFreeSlotForStaff(long staffId, int fromOffset) throws Exception {
+        for (int offset = fromOffset; offset <= 13; offset++) {
+            LocalDate date = TestSupport.workdayAfter(offset);
+            MvcResult result = mockMvc.perform(get("/availability")
+                            .param("date", date.toString())
+                            .param("serviceIds", String.valueOf(service.getId()))
+                            .param("staffId", String.valueOf(staffId)))
+                    .andExpect(status().isOk())
+                    .andReturn();
+            JsonNode slots = body(result).get("data").get("anyAvailable");
+            if (slots != null && slots.size() > 0) {
+                return new String[]{date.toString(), slots.get(0).asText()};
+            }
+        }
+        throw new AssertionError("Không còn slot trống cho thợ " + staffId);
+    }
+
     @Test
     void createBookingStartsAtConfirmedWithConfirmationCodeAndHistory() throws Exception {
         LocalDate date = TestSupport.workdayAfter(3);
@@ -194,10 +218,13 @@ class Sprint2BookingPolicyTest {
     void rescheduleWithinCutoffNeedsStaffOverrideWithReason() throws Exception {
         LocalDate date = nearDate();
         String time = nearTime(date);
-        long id = createBooking(date, time, "01760000005").get("id").asLong();
-        LocalDate target = TestSupport.workdayAfter(6);
+        JsonNode created = createBooking(date, time, "01760000005");
+        long id = created.get("id").asLong();
+        long staffId = created.get("staffId").asLong();
 
-        String body = "{\"date\":\"" + target + "\",\"time\":\"11:00\"}";
+        // Reschedule giữ nguyên thợ cũ → phải hỏi slot trống của đúng thợ đó.
+        String[] target = firstFreeSlotForStaff(staffId, 6);
+        String body = "{\"date\":\"" + target[0] + "\",\"time\":\"" + target[1] + "\"}";
 
         mockMvc.perform(patch("/bookings/" + id + "/reschedule")
                         .header("Authorization", "Bearer " + customerToken)
@@ -216,23 +243,28 @@ class Sprint2BookingPolicyTest {
         mockMvc.perform(patch("/bookings/" + id + "/reschedule")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"date\":\"" + target + "\",\"time\":\"11:00\",\"reason\":\"Kulanz\"}"))
+                        .content("{\"date\":\"" + target[0] + "\",\"time\":\"" + target[1] +
+                                "\",\"reason\":\"Kulanz\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.date").value(target.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))))
+                .andExpect(jsonPath("$.data.date").value(
+                        LocalDate.parse(target[0]).format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))))
                 .andExpect(jsonPath("$.data.versionNo").value(1));
     }
 
     @Test
     void customerCanRescheduleFarFutureAndVersionIsStored() throws Exception {
-        long id = createBooking(TestSupport.workdayAfter(7), "13:00", "01760000006").get("id").asLong();
-        LocalDate target = TestSupport.workdayAfter(9);
+        JsonNode created = createBooking(TestSupport.workdayAfter(7), "13:00", "01760000006");
+        long id = created.get("id").asLong();
+        long staffId = created.get("staffId").asLong();
+
+        String[] target = firstFreeSlotForStaff(staffId, 9);
 
         mockMvc.perform(patch("/bookings/" + id + "/reschedule")
                         .header("Authorization", "Bearer " + customerToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"date\":\"" + target + "\",\"time\":\"14:00\"}"))
+                        .content("{\"date\":\"" + target[0] + "\",\"time\":\"" + target[1] + "\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.time").value("14:00"))
+                .andExpect(jsonPath("$.data.time").value(target[1]))
                 .andExpect(jsonPath("$.data.versionNo").value(1));
     }
 
