@@ -489,6 +489,30 @@ GET /bookings?page=0&size=20&status=bestätigt&staffId=1&serviceId=2
 Doanh thu = tổng giá dịch vụ các booking trong tháng hiện tại (bỏ qua `storniert`);
 trend so sánh hôm nay/hôm qua và tháng này/tháng trước.
 
+## 8. TSE / fiskaly (Sprint 3)
+
+### GET `/tse/status`
+Yêu cầu `ADMIN` hoặc `MANAGER`. Chỉ trả trạng thái vận hành, **không** trả API key/secret.
+
+```json
+// Response → data (2026-11-20: chưa đăng ký key fiskaly)
+{
+  "enabled": false,               // FISKALY_ENABLED
+  "provider": "fiskaly",
+  "environment": "SANDBOX",       // SANDBOX | PRODUCTION
+  "implementation": "NOOP",       // NOOP khi tắt; FISKALY khi đã triển khai
+  "credentialsPresent": false,    // đủ API key/TSS/client chưa
+  "tssId": "",                    // đã mask, ví dụ "tss_***ef"
+  "clientId": "",
+  "timeoutMs": 3000
+}
+```
+
+- `enabled=false`: checkout vẫn chạy bình thường, bỏ bước ký TSE (trạng thái `SKIPPED`).
+- Bật `FISKALY_ENABLED=true` khi `FiskalyTseClient` chưa triển khai → app **fail-fast**
+  (cố ý, tránh tưởng đã ký TSE).
+- Thiết kế đầy đủ: [docs/tse/tse-design.md](docs/tse/tse-design.md).
+
 ---
 
 ## Endpoint cũ
@@ -544,6 +568,8 @@ curl -X POST http://localhost:8080/bookings -H "Content-Type: application/json" 
   - `IdempotencyTest` (3) — replay, conflict payload, không key.
   - `WaitlistTest` (3) — chống trùng, notify khi giải phóng slot, phân quyền.
   - `Sprint2AdminApiTest` (3) — audit log + RBAC, paging/filter/sort.
+- **Sprint 3:**
+  - `TseStatusTest` (6) — `GET /tse/status` RBAC, no-op khi tắt TSE, mask id, không lộ secret.
 
 Chạy: `./mvnw verify` (H2 cho test thường; `BookingConcurrencyTest` cần Docker).
 Trên Windows + Docker Desktop, nếu Testcontainers không tìm thấy daemon, thêm vào

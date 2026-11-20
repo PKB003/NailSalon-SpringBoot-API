@@ -68,6 +68,9 @@ Trên Windows PowerShell dùng `$env:JWT_SECRET_KEY="..."` thay cho `export`.
   - `IdempotencyTest` (3) — replay cùng key, cùng key khác payload → 409, không key → 2 booking.
   - `WaitlistTest` (3) — chống spam trùng, huỷ booking → NOTIFIED + notify, public/staff auth.
   - `Sprint2AdminApiTest` (3) — audit log + RBAC, phân trang/filter/sort booking & customer.
+- **Sprint 3 (đang làm):**
+  - `TseStatusTest` (6) — TSE mặc định tắt/no-op, `GET /tse/status` RBAC + không lộ secret,
+    mask id, `hasCredentials=false`.
 - JaCoCo gate: instruction coverage ≥ 25% (S1 thực tế ~73%, line ~77%, branch ~52%).
   Mục tiêu dài hạn theo Plan §7.3: line ≥ 70%, branch ≥ 60%.
 
@@ -94,7 +97,11 @@ Mọi cấu hình nhạy cảm đọc từ biến môi trường (xem [.env.exam
 | `GUEST_LOOKUP_MAX_ATTEMPTS` | | Mặc định `5` lần nhập OTP |
 | `GUEST_LOOKUP_MAX_REQUESTS` | | Mặc định `5` request / `GUEST_LOOKUP_RATE_WINDOW_MINUTES` (15') |
 | `GUEST_LOOKUP_EXPOSE_OTP` | dev/test | `true` để trả OTP trong response; **production phải `false`** |
-| `FISKALY_*` | S3 | Placeholder, xem [docs/tse/fiskaly-setup.md](docs/tse/fiskaly-setup.md) |
+| `FISKALY_ENABLED` | S3 | Mặc định `false`; chỉ bật sau khi S3-T10 xong |
+| `FISKALY_ENVIRONMENT` | | `SANDBOX` (mặc định) \| `PRODUCTION` |
+| `FISKALY_BASE_URL` / `FISKALY_TSS_ID` / `FISKALY_CLIENT_ID` | S3 | Sandbox/production; xem [docs/tse/fiskaly-setup.md](docs/tse/fiskaly-setup.md) |
+| `FISKALY_API_KEY` / `FISKALY_API_SECRET` | S3 | Secret manager — **không commit** |
+| `FISKALY_TIMEOUT_MS` / `FISKALY_RETRY_*` | | Timeout 3000ms, retry 3 lần, backoff 500ms |
 
 `src/main/resources/application.properties` chỉ chứa **giá trị dev mặc định**;
 secret thật override bằng env. Không commit `.env`.
@@ -113,6 +120,8 @@ secret thật override bằng env. Không commit `.env`.
 - [Flyway migrate & rollback V3 (Sprint 2)](docs/db/rollback-V3.md)
 - [Ghi chú Sprint 2 cho frontend (S2-10)](docs/sprint2-frontend-notes.md)
 - [fiskaly SIGN DE — sandbox & tích hợp](docs/tse/fiskaly-setup.md)
+- [Thiết kế TSE — fiskaly SIGN DE (S3)](docs/tse/tse-design.md)
+- [Sprint 3 — trạng thái & thứ tự triển khai](docs/sprint3/README.md)
 - [Plan.md](Plan.md) — phân tích, kiến trúc, roadmap, test strategy, runbook thuế/TSE.
 
 ## Sprint 1 — Staff & Availability Engine
@@ -160,6 +169,19 @@ Rollback migration: [docs/db/rollback-V2.md](docs/db/rollback-V2.md).
 
 Chi tiết endpoint + ví dụ JSON: [API-ENDPOINTS.md](API-ENDPOINTS.md).
 Rollback migration: [docs/db/rollback-V3.md](docs/db/rollback-V3.md).
+
+## Sprint 3 — POS, Payment, Invoice & Tax (đang làm)
+
+Bắt đầu 2026-11-20, ưu tiên phần TSE/fiskaly trước (chưa đăng ký key).
+
+- **S3-09/TSE groundwork:** module `tse` với `TseClient`, `NoopTseClient`,
+  `TseProperties`, `GET /tse/status` (MANAGER/ADMIN).
+  Mặc định `FISKALY_ENABLED=false` → checkout không phụ thuộc TSE, giao dịch ở trạng thái
+  `SKIPPED`. Bật `true` khi chưa triển khai client sẽ fail-fast để tránh ký giả.
+- **Chưa làm (chờ key fiskaly):** gọi API thật, migration `tse_transaction`, retry job,
+  QR trên receipt, DSFinV-K.
+- Thiết kế + runbook: [docs/tse/tse-design.md](docs/tse/tse-design.md).
+- Trạng thái task Sprint 3: [docs/sprint3/README.md](docs/sprint3/README.md).
 
 ## CI
 

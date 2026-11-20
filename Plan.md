@@ -653,6 +653,10 @@ cancellation_record(id, booking_id, requested_by, reason, policy_snapshot,
 
 #### 5.8.3. Tích hợp fiskaly — các bước kỹ thuật
 
+> **Trạng thái 2026-11-20:** đã có khung `TseClient` + `NoopTseClient` +
+> `GET /tse/status` + tài liệu thiết kế; **chưa đăng ký key fiskaly** nên chưa gọi
+> API thật, chưa tạo bảng `tse_transaction`. Xem `docs/tse/tse-design.md`.
+
 **Chuẩn bị (S0/S3 đầu):**
 1. Tạo tài khoản fiskaly, organisation; lấy `api-key`/`api-secret`; dùng **sandbox** trước.
 2. Tạo TSE (`POST /tse`) → lưu `tse_id`.

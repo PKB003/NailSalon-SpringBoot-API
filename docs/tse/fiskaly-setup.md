@@ -4,13 +4,21 @@
 > (đăng ký sandbox, lưu secret, ký thử 1 giao dịch) và là đầu vào cho S3-T10 → S3-T12.
 > Endpoint cụ thể có thể thay đổi theo version API — luôn đối chiếu
 > [tài liệu fiskaly](https://developer.fiskaly.com) trước khi code.
+>
+> **Thiết kế kỹ thuật đầy đủ:** [tse-design.md](tse-design.md) — data model, retry,
+> state machine, DSFinV-K, testing và activation runbook.
 
-## 0. Trạng thái hiện tại
+## 0. Trạng thái hiện tại (2026-11-20)
+
+> ⛔ **Chưa đăng ký key với fiskaly.** Không có API key/TSS/client, không gọi API thật.
+> Code hiện tại là khung `TseClient` + `NoopTseClient`; bật `FISKALY_ENABLED=true`
+> sẽ **fail-fast** vì `FiskalyTseClient` chưa triển khai (S3-T10).
 
 - [ ] Có tài khoản fiskaly sandbox
 - [ ] Có `FISKALY_API_KEY` / `FISKALY_API_SECRET`
 - [ ] Có `FISKALY_TSS_ID` (TSS = Technical Security System)
 - [ ] Có `FISKALY_CLIENT_ID` + `serial_number`
+- [ ] Chốt **version API** + lưu mẫu response thật (fixture)
 - [ ] Ký thử 1 giao dịch, lưu được signature + QR
 - [ ] Có file DATEV mẫu + mẫu hoá đơn của Steuerberater
 
@@ -23,7 +31,9 @@
    - `FISKALY_API_SECRET` (chỉ hiện 1 lần — lưu ngay vào secret manager)
 4. Xác nhận base URL sandbox: `https://kassensichv.io/api/v2` (kiểm tra lại trong dashboard;
    production dùng host khác).
-5. Không tạo TSS/client bằng tay trên production khi chưa có sign-off của Steuerberater.
+5. Ghi lại **version API** và tải OpenAPI/schema tương ứng. Mọi endpoint trong tài liệu
+   này chỉ là dự kiến — phải đối chiếu trước khi implement `FiskalyTseClient`.
+6. Không tạo TSS/client bằng tay trên production khi chưa có sign-off của Steuerberater.
 
 ## 2. Tạo TSS và client (sandbox)
 
@@ -57,7 +67,10 @@ curl -s -X PUT "$FISKALY_BASE_URL/tss/$FISKALY_TSS_ID/client/$FISKALY_CLIENT_ID"
 | `FISKALY_API_KEY`, `FISKALY_API_SECRET` | GitHub Environments secret / server secret manager |
 | `FISKALY_TSS_ID`, `FISKALY_CLIENT_ID` | cùng nơi (không phải secret tuyệt mật nhưng không hardcode) |
 | `FISKALY_BASE_URL` | config theo môi trường (sandbox/production) |
-| `FISKALY_ENABLED` | `false` ở dev/test; `true` khi đã có credential |
+| `FISKALY_ENVIRONMENT` | `SANDBOX` (mặc định) hoặc `PRODUCTION` |
+| `FISKALY_ENABLED` | `false` ở dev/test; **chỉ `true` sau khi S3-T10 xong** |
+| `FISKALY_TIMEOUT_MS` | timeout HTTP mỗi lần gọi (mặc định 3000) |
+| `FISKALY_RETRY_MAX_ATTEMPTS` / `FISKALY_RETRY_BACKOFF_MS` | retry trong request (3 / 500ms) |
 
 - **Không** commit `.env` (đã gitignore) và không đưa key vào `application.properties`.
 - Local: copy `.env.example` → `.env` rồi điền.
@@ -105,22 +118,37 @@ secret đã nằm trong secret manager; có file DATEV mẫu từ Steuerberater.
 
 ```
 com.ttnails.booking_service.tse
-├── TseClient                 (interface: start, finish, status)
-├── FiskalyTseClient          (implementation REST)
-├── TseTransaction            (entity append-only)
-└── TseReconciliationJob      (đối soát cuối ngày)
+├── client
+│   ├── TseClient              (interface: start, finish, status)
+│   ├── NoopTseClient          (enabled=false → SKIPPED, không gọi mạng)
+│   ├── FiskalyTseClient       (guard fail-fast; S3-T10 thay bằng REST client)
+│   └── TseReceipt/TseSignature/TseTransactionStatus/...
+├── config/TseProperties       (fiskaly.* + mask/hasCredentials)
+├── service/TseStatusService
+├── controller/TseController   (GET /tse/status — MANAGER/ADMIN)
+└── dto/TseStatusResponse
 ```
 
-Cấu hình dự kiến (đã có placeholder trong `application.properties`):
+Thiết kế chi tiết (data model `tse_transaction`, retry, DSFinV-K):
+[tse-design.md](tse-design.md).
+
+Cấu hình (đã có placeholder trong `application.properties`):
 
 ```properties
 fiskaly.enabled=${FISKALY_ENABLED:false}
+fiskaly.environment=${FISKALY_ENVIRONMENT:SANDBOX}
 fiskaly.base-url=${FISKALY_BASE_URL:https://kassensichv.io/api/v2}
 fiskaly.api-key=${FISKALY_API_KEY:}
 fiskaly.api-secret=${FISKALY_API_SECRET:}
 fiskaly.tss-id=${FISKALY_TSS_ID:}
 fiskaly.client-id=${FISKALY_CLIENT_ID:}
+fiskaly.timeout-ms=${FISKALY_TIMEOUT_MS:3000}
+fiskaly.retry.max-attempts=${FISKALY_RETRY_MAX_ATTEMPTS:3}
+fiskaly.retry.initial-backoff-ms=${FISKALY_RETRY_BACKOFF_MS:500}
 ```
+
+Trạng thái hiện tại có thể kiểm tra bằng `GET /tse/status` (MANAGER/ADMIN):
+`implementation=NOOP`, `enabled=false`, `credentialsPresent=false`.
 
 Luồng checkout:
 
@@ -153,7 +181,11 @@ Quy tắc bắt buộc:
 
 ## 7. Checklist S3 liên quan TSE
 
-- [ ] `S3-T10` fiskaly sandbox + `tse_transaction` + QR trên receipt
+- [x] `S3-T10a` interface + config + no-op + `GET /tse/status` + tài liệu (2026-11-20)
+- [ ] `S3-T10b` đăng ký sandbox + TSS/client + ký thử bằng curl (chờ key)
+- [ ] `S3-T10c` `FiskalyTseClient` + WireMock tests
+- [ ] `S3-T10d` migration `tse_transaction` + service orchestration
+- [ ] `S3-T10e` QR trên receipt + sandbox E2E + retry cùng `tx_id`
 - [ ] `S3-T11` DSFinV-K export
 - [ ] `S3-T12` Test concurrency cấp số + retry TSE + mất mạng
 - [ ] `S3-T13` Steuerberater review hoá đơn mẫu + file DATEV
